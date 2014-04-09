@@ -1,1 +1,3 @@
-drop table test
+drop table user;
+drop table project;
+drop table votes;

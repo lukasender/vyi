@@ -21,7 +21,7 @@ es.settings = ${buildout:directory}/etc/essettings.py
 
 mail.host = localhost
 mail.port = 25
-mail.default_sender = office@lovelysystems.com
+mail.default_sender = hello@lukasender.at
 
 ###
 # wsgi server configuration

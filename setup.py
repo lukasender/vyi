@@ -49,7 +49,10 @@ changes = open(os.path.join(here, 'CHANGES.txt')).read()
 requires = [
     'crate',
     'crash',
+    'gevent',
     'lovely.pyrest',
+    'pyramid',
+    'pyramid_mailer',
 ]
 
 test_requires = requires + [
@@ -77,4 +80,15 @@ setup(name='vyi',
       install_requires=requires,
       tests_require=test_requires,
       test_suite="",
+      entry_points={
+          'paste.app_factory': [
+              'main=vyi.server:app_factory'
+          ],
+          'paste.server_factory': [
+              'server=vyi.green:server_factory',
+          ],
+          'console_scripts': [
+              'app=pyramid.scripts.pserve:main',
+          ],
+      },
       )
