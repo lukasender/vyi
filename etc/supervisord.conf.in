@@ -18,7 +18,7 @@ supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
 serverurl = http://localhost:${ports:supervisor}
 
 [program:crate]
-command = ${crate:location}/bin/crate -f -Des.config=${buildout:directory}/etc/crate.yml
+command = ${crate:location}/bin/crate -Des.config=${buildout:directory}/etc/crate.yml
 numprocs=2
 numprocs_start=${ports:crate}
 process_name = %(program_name)s_%(process_num)04d
