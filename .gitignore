@@ -35,3 +35,8 @@ nosetests.xml
 .project
 .pydevproject
 *.swp
+
+# ignore config files which are generated.
+etc/*.yml
+etc/*.ini
+etc/*.conf
