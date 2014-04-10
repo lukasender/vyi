@@ -1,3 +1,3 @@
-drop table user;
-drop table project;
+drop table users;
+drop table projects;
 drop table votes;
