@@ -54,6 +54,8 @@ REQUIRES = [
     'lovely.pyrest',
     'pyramid',
     'pyramid_mailer',
+    'requests',
+    'urllib3',
     'zope.sqlalchemy',
 ]
 

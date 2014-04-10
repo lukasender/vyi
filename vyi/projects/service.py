@@ -96,7 +96,7 @@ class ProjectService(object):
         query = DB_SESSION.query(User).filter(User.nickname == initiator)
         user = query.all()
         if not user or len(user) > 1:
-            return bad_request()
+            return bad_request('failed for {0}'.format(initiator))
         user = user[0]
 
         vote = Vote()
@@ -135,7 +135,7 @@ class ProjectService(object):
 def bad_request(msg=None):
     # TODO: 403
     br = {"status": "failed"}
-    if not msg:
+    if msg:
         br['msg'] = msg
     return br
 
