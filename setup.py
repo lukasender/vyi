@@ -4,11 +4,11 @@ import re
 import ConfigParser
 from setuptools import setup, find_packages
 
-versionf_content = open("vyi/__init__.py").read()
-version_rex = r'^__version__ = [\'"]([^\'"]*)[\'"]$'
-m = re.search(version_rex, versionf_content, re.M)
-if m:
-    version = m.group(1)
+VERSIONFILE = open("vyi/__init__.py").read()
+VERSION_REGEX = r'^__version__ = [\'"]([^\'"]*)[\'"]$'
+M = re.search(VERSION_REGEX, VERSIONFILE, re.M)
+if M:
+    VERSION = M.group(1)
 else:
     raise RuntimeError('Unable to find version string')
 
@@ -22,7 +22,7 @@ def get_versions():
     return dict(config.items('versions'))
 
 
-def nailed_requires(requirements, pat=re.compile(r'^(.+)(\[.+\])?$')):
+def nailed_requires(requirements):
     """returns the requirements list with nailed versions"""
     versions = get_versions()
     res = []
@@ -39,15 +39,16 @@ def nailed_requires(requirements, pat=re.compile(r'^(.+)(\[.+\])?$')):
 
 
 def read(path):
+    """ read a file """
     return open(os.path.join(os.path.dirname(__file__), path)).read()
 
 
-here = os.path.abspath(os.path.dirname(__file__))
-readme = open(os.path.join(here, 'README.md')).read()
-changes = open(os.path.join(here, 'CHANGES.txt')).read()
+HERE = os.path.abspath(os.path.dirname(__file__))
+README = open(os.path.join(HERE, 'README.md')).read()
+CHANGES = open(os.path.join(HERE, 'CHANGES.txt')).read()
 
-requires = [
-    'crate',
+REQUIRES = [
+    'crate [sqlalchemy]',
     'crash',
     'gevent',
     'lovely.pyrest',
@@ -55,11 +56,11 @@ requires = [
     'pyramid_mailer',
 ]
 
-test_requires = requires + [
+TEST_REQUIRES = REQUIRES + [
 ]
 
 setup(name='vyi',
-      version=version,
+      version=VERSION,
       description='vyi',
       long_description='validate your idea',
       classifiers=[
@@ -74,11 +75,11 @@ setup(name='vyi',
       namespace_packages=['vyi'],
       include_package_data=True,
       extras_require=dict(
-          test=nailed_requires(test_requires),
+          test=nailed_requires(TEST_REQUIRES),
       ),
       zip_safe=False,
-      install_requires=requires,
-      tests_require=test_requires,
+      install_requires=REQUIRES,
+      tests_require=TEST_REQUIRES,
       test_suite="",
       entry_points={
           'paste.app_factory': [
