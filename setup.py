@@ -54,6 +54,7 @@ REQUIRES = [
     'lovely.pyrest',
     'pyramid',
     'pyramid_mailer',
+    'zope.sqlalchemy',
 ]
 
 TEST_REQUIRES = REQUIRES + [

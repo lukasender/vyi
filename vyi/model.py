@@ -1,33 +1,43 @@
-"""
-Database cluster representation
-"""
+from sqlalchemy.orm import scoped_session
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+from zope.sqlalchemy import ZopeTransactionExtension
+from functools import wraps
+import uuid
+from hashlib import sha1
 
-class DB(object):
-    """ representation of the DB cluster """
+DB_SESSION = scoped_session(sessionmaker(extension=ZopeTransactionExtension()))
+Base = declarative_base()
 
-    def __init__(self):
-        self.connection = None
-
-    def configure(self, connection):
-        """ configure the connection """
-        self.connection = connection
-
-    def client(self):
-        """ returns the client of a connection """
-        return self.connection.client
-
-    def cursor(self):
-        """ returns the cursor of a connection """
-        return self.connection.cursor
-
-    def execute(self, statement):
-        """ executes a SQL statement and returns a cursor """
-        return self.cursor().execute(statement)
-
-    def close(self):
-        """ closes the cursor and connection """
-        self.cursor().close()
-        self.connection.close()
+REFRESH_TABLES = ['projects', 'users', 'votes']
 
 
-DB = DB()
+def genuuid():
+    return str(uuid.uuid4())
+
+
+def genid(str):
+    """ generate a deterministic id for 'str' """
+    if isinstance(str, unicode):
+        str_8bit = str.encode('UTF-8')
+    else:
+        str_8bit = str
+    return sha1('salt' + str_8bit).hexdigest()
+
+
+def refresh_tables():
+    """Refresh all tables"""
+    DB_SESSION.flush()
+    connection = Base.metadata.bind.raw_connection().connection.cursor()
+    for table in REFRESH_TABLES:
+        connection.execute("REFRESH TABLE " + table)
+
+
+def refresher(function):
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        """ wrapper function """
+        result = function(*args, **kwargs)
+        refresh_tables()
+        return result
+    return wrapper
