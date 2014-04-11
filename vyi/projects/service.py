@@ -10,7 +10,7 @@ from ..model import DB_SESSION, refresher
 import transaction
 
 
-PROJECT_SCHEMA = {
+PROJECTS_SCHEMA = {
     'type': 'object',
     'properties': {
         'name': {
@@ -63,24 +63,24 @@ class ProjectService(object):
 
         for project in projects:
             u = user(users, project)
-            up = project.votes['up']
-            down = project.votes['down']
-            proj = {
-                "id": project.id,
-                "name": project.name,
-                "initiator": u.nickname,
-                "votes": {
-                    "up": up,
-                    "down": down,
-                    "sum": up - down
-                },
-                "description": project.description
-            }
-            result.append(proj)
+            result.append(create_project(project, u))
         return {"data": {"projects": result}}
 
+    @rpcmethod_route(route_suffix="/{project_id}")
+    def list_project(self, project_id):
+        queryProject = DB_SESSION.query(Project).filter(
+                                  Project.id == project_id)
+        try:
+            project = queryProject.one()
+            queryUser = DB_SESSION.query(User).filter(
+                                   User.id == project.initiator_id)
+            user = queryUser.one()
+            return {"data": {"projects": [create_project(project, user)]}}
+        except (NoResultFound, MultipleResultsFound):
+            return bad_request("not found")
+
     @rpcmethod_route(route_suffix="/add", request_method="POST")
-    @validate(PROJECT_SCHEMA)
+    @validate(PROJECTS_SCHEMA)
     @refresher
     def add(self, name, initiator):
         """ add a new project """
@@ -93,9 +93,7 @@ class ProjectService(object):
         project = Project()
         project.initiator_id = user.id
         project.name = name
-        project.votes = {}
-        project.votes['up'] = 0
-        project.votes['down'] = 0
+        project.votes = {'up': 0, 'down': 0}
         DB_SESSION.add(project)
         return {"status":"success"}
 
@@ -103,8 +101,8 @@ class ProjectService(object):
     @validate(VOTE_SCHEMA)
     def vote(self, vote, project_id=None, project_name=None):
         if not (project_id and project_name):
-            bad_request("either 'project_id' or 'project_name' has to be \
-                        present.")
+            bad_request("either 'project_id' or 'project_name' has to be " +
+                        "present.")
         if project_id:
             query = DB_SESSION.query(Project).filter(Project.id == project_id)
             project = query.one()
@@ -117,6 +115,23 @@ class ProjectService(object):
         else:
             return bad_request("not yet implemented. please provide a " +
                                "'project_id'.")
+
+
+def create_project(project, user):
+    up = project.votes['up']
+    down = project.votes['down']
+    proj = {
+        "id": project.id,
+        "name": project.name,
+        "initiator": user.nickname,
+        "votes": {
+            "up": up,
+            "down": down,
+            "sum": up - down
+        },
+        "description": project.description
+    }
+    return proj
 
 
 def bad_request(msg=None):
