@@ -71,7 +71,7 @@ def release_the_kraken():
                 print i, r.status_code, r.text
 
     print "I'm done! I did a total voting of {0} (up: {1}, down: {2}) and \
-it took me {3}".format((up+down), up, down, t.secs)
+it took me {3} seconds.".format((up+down), up, down, t.secs)
 
 
 
