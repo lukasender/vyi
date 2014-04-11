@@ -1,10 +1,12 @@
+# -*- coding: utf-8; -*-
 import requests
 import random
-import urllib3
 import json
 import time
 
-USERS = ["lumannnn", "lui", "albert_einstein", "nikola_tesla"]
+
+USERS = ["lumannnn", "luibär", "albert_einstein", "nikola_tesla"]
+
 
 headers = {'content-type':'application/json'}
 
@@ -33,9 +35,11 @@ class Timer(object):
 def release_the_kraken():
     baseurl = 'http://localhost:9100'
 
+    vote_x_times = 10 # for each project
+
     with Timer() as t:
         url = baseurl + '/projects/add'
-        for i in range(50):
+        for i in range(1000):
             payload = {
                 'name': 'test project {0}'.format(i),
                 'initiator': random.choice(USERS)
@@ -46,7 +50,7 @@ def release_the_kraken():
                 print i, r.status_code, r.text
 
         up = down = 0
-        for i in range(1, 11):
+        for i in range(1, vote_x_times + 1):
             url = baseurl + '/projects'
             r = requests.get(url)
             for project in r.json()['data']['projects']:
@@ -59,7 +63,7 @@ def release_the_kraken():
                                                                project['id'])
                 url = baseurl + '/projects/vote'
                 payload = {
-                    'vote_id': project['votes']['id'],
+                    'project_id': project['id'],
                     'vote': vote
                 }
                 r = requests.post(url, data=json.dumps(payload),

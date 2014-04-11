@@ -3,7 +3,7 @@ from lovely.pyrest.validation import validate
 from crate.client.exceptions import ProgrammingError
 
 from vyi.users.model import User
-from ..model import DB_SESSION, refresher, genid
+from ..model import DB_SESSION, genid, refresher
 
 
 REGISTER_SCHEMA = {

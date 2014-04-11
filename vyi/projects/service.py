@@ -1,9 +1,11 @@
 from lovely.pyrest.rest import RestService, rpcmethod_route
 from lovely.pyrest.validation import validate
 
+from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
+
 from vyi.users.model import User
-from vyi.projects.model import Vote, Project
-from ..model import DB_SESSION, refresher, genuuid
+from vyi.projects.model import Project
+from ..model import DB_SESSION, refresher
 
 import transaction
 
@@ -23,10 +25,6 @@ PROJECT_SCHEMA = {
 VOTE_SCHEMA = {
     'type': 'object',
     'properties': {
-        'vote_id': {
-            'type': 'string',
-            'required': False
-        },
         'project_id': {
             'type': 'string',
             'required': False
@@ -52,33 +50,26 @@ class ProjectService(object):
     def list(self):
         """ List all projects """
         queryProjects = DB_SESSION.query(Project).order_by(Project.name)
-        queryVotes = DB_SESSION.query(Vote).order_by(Vote.id)
+        #queryVotes = DB_SESSION.query(Vote).order_by(Vote.id)
         # TODO: improve this.. only fetch user_ids for [project.initiator_id]
         queryUsers = DB_SESSION.query(User).order_by(User.id)
         projects = queryProjects.all()
-        votes = queryVotes.all()
         users = queryUsers.all()
         result = []
-        def vote(votes, project):
-            for v in votes:
-                if v.id == project.vote_id:
-                    return v
         def user(users, project):
             for u in users:
                 if u.id == project.initiator_id:
                     return u
 
         for project in projects:
-            v = vote(votes, project)
             u = user(users, project)
-            up = v.up
-            down = v.down
+            up = project.votes['up']
+            down = project.votes['down']
             proj = {
                 "id": project.id,
                 "name": project.name,
                 "initiator": u.nickname,
                 "votes": {
-                    "id": v.id,
                     "up": up,
                     "down": down,
                     "sum": up - down
@@ -94,42 +85,38 @@ class ProjectService(object):
     def add(self, name, initiator):
         """ add a new project """
         query = DB_SESSION.query(User).filter(User.nickname == initiator)
-        user = query.all()
-        if not user or len(user) > 1:
+        try:
+            user = query.one()
+        except (NoResultFound, MultipleResultsFound):
             return bad_request('failed for {0}'.format(initiator))
-        user = user[0]
-
-        vote = Vote()
-        vote.id = genuuid()
 
         project = Project()
-        project.vote_id = vote.id
         project.initiator_id = user.id
         project.name = name
-
-        DB_SESSION.add(vote)
+        project.votes = {}
+        project.votes['up'] = 0
+        project.votes['down'] = 0
         DB_SESSION.add(project)
-
         return {"status":"success"}
 
     @rpcmethod_route(route_suffix="/vote", request_method="POST")
     @validate(VOTE_SCHEMA)
-    def vote(self, vote, vote_id=None, project_id=None, project_name=None):
-        if not (vote_id and project_id and project_name):
+    def vote(self, vote, project_id=None, project_name=None):
+        if not (project_id and project_name):
             bad_request("either 'project_id' or 'project_name' has to be \
                         present.")
-        if vote_id:
-            query = DB_SESSION.query(Vote).filter(Vote.id == vote_id)
-            v = query.one()
+        if project_id:
+            query = DB_SESSION.query(Project).filter(Project.id == project_id)
+            project = query.one()
             if vote == 'up':
-                v.up += 1
+                project.votes['up'] += 1
             else:
-                v.down += 1
+                project.votes['down'] += 1
             transaction.commit()
             return {"status":"success"}
         else:
-            return bad_request("not yet implemented. please provide a \
-                                'vote_id'.")
+            return bad_request("not yet implemented. please provide a " +
+                               "'project_id'.")
 
 
 def bad_request(msg=None):
@@ -138,7 +125,6 @@ def bad_request(msg=None):
     if msg:
         br['msg'] = msg
     return br
-
 
 
 def includeme(config):

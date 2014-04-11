@@ -1,14 +1,6 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, String
+from crate.client.sqlalchemy.types import Object
 from vyi.model import Base, genuuid
-
-
-class Vote(Base):
-
-    __tablename__ = 'votes'
-
-    id = Column('id', String, default=genuuid, primary_key=True)
-    up = Column('up', Integer, default=0)
-    down = Column('down', Integer, default=0)
 
 
 class Project(Base):
@@ -17,6 +9,6 @@ class Project(Base):
 
     id = Column('id', String, default=genuuid, primary_key=True)
     initiator_id = Column('initiator_id', String, primary_key=True)
-    vote_id = Column('vote_id', String, primary_key=True)
     name = Column('name', String)
     description = Column('description', String, default=None)
+    votes = Column('votes', Object) # {'up': 0, 'down': 0}

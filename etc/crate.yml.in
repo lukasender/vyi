@@ -9,3 +9,5 @@ discovery:
                 enabled:  ${crate:multicast}
 cluster:
     name: ${crate:cluster_name}
+
+es.api.enabled: true

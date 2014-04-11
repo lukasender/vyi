@@ -9,19 +9,19 @@ from hashlib import sha1
 DB_SESSION = scoped_session(sessionmaker(extension=ZopeTransactionExtension()))
 Base = declarative_base()
 
-REFRESH_TABLES = ['projects', 'users', 'votes']
+REFRESH_TABLES = ['projects', 'users']
 
 
 def genuuid():
     return str(uuid.uuid4())
 
 
-def genid(str):
-    """ generate a deterministic id for 'str' """
-    if isinstance(str, unicode):
-        str_8bit = str.encode('UTF-8')
+def genid(s):
+    """ generate a deterministic id for 's' """
+    if isinstance(s, unicode):
+        str_8bit = s.encode('UTF-8')
     else:
-        str_8bit = str
+        str_8bit = s
     return sha1('salt' + str_8bit).hexdigest()
 
 
