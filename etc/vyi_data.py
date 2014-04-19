@@ -35,45 +35,42 @@ class Timer(object):
 def release_the_kraken():
     baseurl = 'http://localhost:9100'
 
-    vote_x_times = 10 # for each project
+    vote_x_times = 100
 
     with Timer() as t:
-        url = baseurl + '/projects/add'
-        for i in range(1000):
+        url = baseurl + '/projects'
+        r = requests.get(url)
+        p_ids = [project['id'] for project in r.json()['data']['projects']]
+
+        errors = []
+
+        project_id = random.choice(p_ids)
+        up = down = 0
+        for i in range(vote_x_times):
+            vote = random.choice(['up', 'down'])
+            if vote == 'up':
+                up += 1
+            else:
+                down += 1
+            print "voting for project.id '{0}': {1}".format(project_id, vote)
+            url = baseurl + '/projects/vote_ec'
             payload = {
-                'name': 'test project {0}'.format(i),
-                'initiator': random.choice(USERS)
+                'project_id': project_id,
+                'vote': vote
             }
             with Timer(True):
                 r = requests.post(url, data=json.dumps(payload),
                                   headers=headers)
+                rJson = r.json()
+                if rJson['status'] == 'failed':
+                    errors.append(rJson['msg'])
                 print i, r.status_code, r.text
 
-        up = down = 0
-        for i in range(1, vote_x_times + 1):
-            url = baseurl + '/projects'
-            r = requests.get(url)
-            for project in r.json()['data']['projects']:
-                vote = random.choice(['up', 'down'])
-                if vote == 'up':
-                    up += 1
-                else:
-                    down += 1
-                print "voting '{0}' for project.id {1}".format(vote,
-                                                               project['id'])
-                url = baseurl + '/projects/vote'
-                payload = {
-                    'project_id': project['id'],
-                    'vote': vote
-                }
-                with Timer(True):
-                    r = requests.post(url, data=json.dumps(payload),
-                                      headers=headers)
-                    print i, r.status_code, r.text
-
-    print "I'm done! I did a total voting of {0} (up: {1}, down: {2}) and \
-it took me {3} seconds.".format((up+down), up, down, t.secs)
-
+    print "I'm done! I did a total voting of {0} (up: {1}, down: {2}) " \
+          "for project_id '{3}' and " \
+          "it took me {4} seconds.".format((up+down), up, down,
+                                           project_id, t.secs)
+    print errors
 
 
 if __name__ == '__main__':

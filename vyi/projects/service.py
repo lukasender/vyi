@@ -6,7 +6,7 @@ from sqlalchemy.sql import text
 
 from vyi.users.model import User
 from vyi.projects.model import Project
-from ..model import DB_SESSION, Base, refresher
+from ..model import DB_SESSION, CRATE_CONNECTION, Base, refresher
 
 import transaction
 
@@ -95,6 +95,7 @@ class ProjectService(object):
 
     @rpcmethod_route(route_suffix="/vote", request_method="POST")
     @validate(VOTE_SCHEMA)
+    @refresher
     def vote(self, vote, project_id):
         query = DB_SESSION.query(Project).filter(Project.id == project_id)
         project = query.one()
@@ -107,19 +108,18 @@ class ProjectService(object):
 
     @rpcmethod_route(route_suffix="/vote_ec", request_method="POST")
     @validate(VOTE_SCHEMA)
+    @refresher
     def vote_ec(self, vote, project_id):
         successful = False
         max_retries = retries = 5
         while not successful and retries > 0:
-            select_stmt = text(
-                "SELECT _version, projects.id, projects.votes "
-                "FROM projects WHERE projects.id = :p_id")
-            query = DB_SESSION.connection().execute(select_stmt,
-                                                    p_id=project_id)
-            _version, proj_id, votes = query.fetchone()
+            cursor = CRATE_CONNECTION().cursor()
+            cursor.execute("SELECT _version, projects.id, projects.votes " \
+                           "FROM projects WHERE projects.id = ?", (project_id,))
+            _version, proj_id, votes = cursor.fetchone()
             update_stmt = "UPDATE projects " \
-                          "SET projects.votes['{0}'] = :vote " \
-                          "WHERE _version = :v AND projects.id = :p_id"
+                          "SET projects.votes['{0}'] = ? " \
+                          "WHERE _version = ? AND projects.id = ?"
             if vote == "up":
                 vote = votes['up'] + 1
                 update_stmt = update_stmt.format('up')
@@ -127,12 +127,8 @@ class ProjectService(object):
                 vote = votes['down'] + 1
                 update_stmt = update_stmt.format('down')
 
-            result = DB_SESSION.connection().execute(
-                text(update_stmt),
-                p_id=proj_id, vote=vote,
-                v=_version
-            )
-            if result.rowcount == 1:
+            cursor.execute(update_stmt, (vote, _version, proj_id,))
+            if cursor.rowcount == 1:
                 successful = True
             else:
                 retries -= 1
