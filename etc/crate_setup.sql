@@ -12,3 +12,11 @@ create table projects (
         down int
     )
 );
+create table stats (
+    id string primary key,
+    project_id string primary key,
+    votes object as (
+        up int,
+        down int
+    )
+);

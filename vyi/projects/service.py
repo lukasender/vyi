@@ -2,10 +2,11 @@ from lovely.pyrest.rest import RestService, rpcmethod_route
 from lovely.pyrest.validation import validate
 
 from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
+from sqlalchemy.sql import text
 
 from vyi.users.model import User
 from vyi.projects.model import Project
-from ..model import DB_SESSION, refresher
+from ..model import DB_SESSION, Base, refresher
 
 import transaction
 
@@ -26,12 +27,7 @@ VOTE_SCHEMA = {
     'type': 'object',
     'properties': {
         'project_id': {
-            'type': 'string',
-            'required': False
-        },
-        'project_name': {
-            'type': 'string',
-            'required': False
+            'type': 'string'
         },
         'vote': {
             'enum': ['up', 'down']
@@ -99,22 +95,56 @@ class ProjectService(object):
 
     @rpcmethod_route(route_suffix="/vote", request_method="POST")
     @validate(VOTE_SCHEMA)
-    def vote(self, vote, project_id=None, project_name=None):
-        if not (project_id and project_name):
-            bad_request("either 'project_id' or 'project_name' has to be " +
-                        "present.")
-        if project_id:
-            query = DB_SESSION.query(Project).filter(Project.id == project_id)
-            project = query.one()
-            if vote == 'up':
-                project.votes['up'] += 1
-            else:
-                project.votes['down'] += 1
-            transaction.commit()
-            return {"status":"success"}
+    def vote(self, vote, project_id):
+        query = DB_SESSION.query(Project).filter(Project.id == project_id)
+        project = query.one()
+        if vote == 'up':
+            project.votes['up'] += 1
         else:
-            return bad_request("not yet implemented. please provide a " +
-                               "'project_id'.")
+            project.votes['down'] += 1
+        transaction.commit()
+        return {"status":"success"}
+
+    @rpcmethod_route(route_suffix="/vote_ec", request_method="POST")
+    @validate(VOTE_SCHEMA)
+    def vote_ec(self, vote, project_id):
+        successful = False
+        max_retries = retries = 5
+        while not successful and retries > 0:
+            select_stmt = text(
+                "SELECT _version, projects.id, projects.votes "
+                "FROM projects WHERE projects.id = :p_id")
+            query = DB_SESSION.connection().execute(select_stmt,
+                                                    p_id=project_id)
+            _version, proj_id, votes = query.fetchone()
+            update_stmt = "UPDATE projects " \
+                          "SET projects.votes['{0}'] = :vote " \
+                          "WHERE _version = :v AND projects.id = :p_id"
+            if vote == "up":
+                vote = votes['up'] + 1
+                update_stmt = update_stmt.format('up')
+            else:
+                vote = votes['down'] + 1
+                update_stmt = update_stmt.format('down')
+
+            result = DB_SESSION.connection().execute(
+                text(update_stmt),
+                p_id=proj_id, vote=vote,
+                v=_version
+            )
+            if result.rowcount == 1:
+                successful = True
+            else:
+                retries -= 1
+
+        if successful:
+            return {"status":"success",
+                    "msg": "successful after {0} (re)tries".format(
+                        max_retries - retries + 1
+                    )
+                   }
+        else:
+            return {"status":"failed", "msg": "something went wrong."}
 
 
 def create_project(project, user):
