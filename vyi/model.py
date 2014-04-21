@@ -27,7 +27,7 @@ CRATE_CONNECTION = CrateConnection()
 Base = declarative_base()
 
 
-REFRESH_TABLES = ['projects', 'users']
+REFRESH_TABLES = ['projects', 'users', 'stats']
 
 
 def genuuid():
