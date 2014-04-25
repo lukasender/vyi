@@ -13,7 +13,7 @@ USERS = ["lumannnn", "luibär", "albert_einstein", "nikola_tesla"]
 
 vote_x_times = 1000
 
-max_concurrent_connections = 4
+max_concurrent_connections = 2
 q = Queue(max_concurrent_connections * 2)
 
 lock = Lock()
