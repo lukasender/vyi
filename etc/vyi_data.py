@@ -84,30 +84,27 @@ def vote(project_id, queue, voting):
 def release_the_kraken():
     try:
         voting = {'up': 0, 'down': 0}
-        with Timer() as t:
-            url = BASEURL + '/projects'
-            r = requests.get(url)
-            p_ids = [project['id'] for project in r.json()['data']['projects']]
+        url = BASEURL + '/projects'
+        r = requests.get(url)
+        p_ids = [project['id'] for project in r.json()['data']['projects']]
 
-            errors = []
+        errors = []
 
-            project_id = random.choice(p_ids)
-            for i in range(max_concurrent_connections):
-                th = Thread(target=vote, args=(project_id, q, voting,))
-                th.daemon = True
-                th.start()
+        project_id = random.choice(p_ids)
+        for i in range(max_concurrent_connections):
+            th = Thread(target=vote, args=(project_id, q, voting,))
+            th.setDaemon(True)
+            th.start()
 
-            for i in range(vote_x_times):
-                q.put(i)
-            q.join()
+        for i in range(vote_x_times):
+            q.put(i)
+        q.join()
 
-            up = voting['up']
-            down = voting['down']
-            print "I'm done! I did a total voting of {0} (up: {1}, down: {2}) "\
-                  "for project_id '{3}' and " \
-                  "it took me {4} seconds.".format((up+down), up, down,
-                                                   project_id, t.secs)
-            print errors
+        up = voting['up']
+        down = voting['down']
+        print "I'm done! I did a total voting of {0} (up: {1}, down: {2}) "\
+              "for project_id '{3}'".format((up+down), up, down, project_id)
+        print errors
     except KeyboardInterrupt:
         sys.exit(1)
 
