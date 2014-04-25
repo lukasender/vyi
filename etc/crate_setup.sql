@@ -10,6 +10,13 @@ create table projects (
     votes object as (
         up int,
         down int
+    ),
+    comments array (
+        object as (
+            user_id string,
+            comment string,
+            "timestamp" timestamp
+        )
     )
 );
 create table stats (
