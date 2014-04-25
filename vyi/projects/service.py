@@ -108,12 +108,13 @@ class ProjectService(object):
 
     @rpcmethod_route(route_suffix="/vote_ec", request_method="POST")
     @validate(VOTE_SCHEMA)
-    @refresher
     def vote_ec(self, vote, project_id):
         successful = False
         max_retries = retries = 5
         while not successful and retries > 0:
             cursor = CRATE_CONNECTION().cursor()
+            cursor.execute("REFRESH TABLE projects")
+            cursor.fetchall()
             cursor.execute("SELECT _version, projects.id, projects.votes " \
                            "FROM projects WHERE projects.id = ?", (project_id,))
             _version, proj_id, votes = cursor.fetchone()
