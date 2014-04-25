@@ -2,7 +2,9 @@ from pyramid.settings import aslist, asbool
 from pyramid.config import Configurator
 from sqlalchemy import create_engine
 
-from .model import DB_SESSION, Base
+from crate.client import connect
+
+from .model import DB_SESSION, Base, CRATE_CONNECTION
 
 
 def app_factory(global_config, **settings):
@@ -36,3 +38,4 @@ def crate_init(config):
     )
     DB_SESSION.configure(bind=engine)
     Base.metadata.bind = engine
+    CRATE_CONNECTION.configure(aslist(settings['crate.hosts']))

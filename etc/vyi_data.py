@@ -1,13 +1,24 @@
 # -*- coding: utf-8; -*-
+import sys
 import requests
 import random
 import json
 import time
 
+from threading import Thread, Lock
+from Queue import Queue
+
 
 USERS = ["lumannnn", "luibär", "albert_einstein", "nikola_tesla"]
 
+vote_x_times = 1000
 
+max_concurrent_connections = 2
+q = Queue(max_concurrent_connections * 2)
+
+lock = Lock()
+
+BASEURL = 'http://localhost:9100'
 headers = {'content-type':'application/json'}
 
 
@@ -32,47 +43,70 @@ class Timer(object):
             print 'elapsed time: %f ms' % self.msecs
 
 
-def release_the_kraken():
-    baseurl = 'http://localhost:9100'
-
-    vote_x_times = 10 # for each project
-
-    with Timer() as t:
-        url = baseurl + '/projects/add'
-        for i in range(1000):
+def vote(project_id, queue, voting):
+    while True:
+        try:
+            i = queue.get()
+            v = random.choice(['up', 'down'])
+            url = BASEURL + '/projects/vote_ec'
             payload = {
-                'name': 'test project {0}'.format(i),
-                'initiator': random.choice(USERS)
+                'project_id': project_id,
+                'vote': v
             }
             with Timer(True):
                 r = requests.post(url, data=json.dumps(payload),
                                   headers=headers)
-                print i, r.status_code, r.text
-
-        up = down = 0
-        for i in range(1, vote_x_times + 1):
-            url = baseurl + '/projects'
-            r = requests.get(url)
-            for project in r.json()['data']['projects']:
-                vote = random.choice(['up', 'down'])
-                if vote == 'up':
-                    up += 1
+                rJson = r.json()
+                lock.acquire()
+                print "voted for project.id '{0}': {1}".format(project_id, v)
+                msg = rJson['msg'] if rJson['status'] == 'failed' else ''
+                if v == 'up':
+                    voting['up'] += 1
                 else:
-                    down += 1
-                print "voting '{0}' for project.id {1}".format(vote,
-                                                               project['id'])
-                url = baseurl + '/projects/vote'
-                payload = {
-                    'project_id': project['id'],
-                    'vote': vote
-                }
-                r = requests.post(url, data=json.dumps(payload),
-                                  headers=headers)
-                print i, r.status_code, r.text
+                    voting['down'] += 1
+                print 'task {0}, {1}: {2}, {3}'.format(i, r.status_code,
+                                                       r.text, msg)
+                lock.release()
+        except Exception as e:
+            lock.acquire()
+            print '-'*40
+            print r.reason, r.text
+            print e
+            print '-'*40
+            lock.release()
+        finally:
+            lock.acquire()
+            print '`--- finishing task {0}'.format(i)
+            queue.task_done()
+            lock.release()
 
-    print "I'm done! I did a total voting of {0} (up: {1}, down: {2}) and \
-it took me {3} seconds.".format((up+down), up, down, t.secs)
 
+def release_the_kraken():
+    try:
+        voting = {'up': 0, 'down': 0}
+        url = BASEURL + '/projects'
+        r = requests.get(url)
+        p_ids = [project['id'] for project in r.json()['data']['projects']]
+
+        errors = []
+
+        project_id = random.choice(p_ids)
+        for i in range(max_concurrent_connections):
+            th = Thread(target=vote, args=(project_id, q, voting,))
+            th.setDaemon(True)
+            th.start()
+
+        for i in range(vote_x_times):
+            q.put(i)
+        q.join()
+
+        up = voting['up']
+        down = voting['down']
+        print "I'm done! I did a total voting of {0} (up: {1}, down: {2}) "\
+              "for project_id '{3}'".format((up+down), up, down, project_id)
+        print errors
+    except KeyboardInterrupt:
+        sys.exit(1)
 
 
 if __name__ == '__main__':

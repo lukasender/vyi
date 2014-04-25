@@ -6,10 +6,28 @@ from functools import wraps
 import uuid
 from hashlib import sha1
 
+from crate.client import connect
+
+
+class CrateConnection(object):
+
+    def __init__(self):
+        self.connection = None
+
+    def __call__(self):
+        return self.connection
+
+    def configure(self, hosts):
+        self.connection = connect(hosts)
+        return self.connection
+
+
 DB_SESSION = scoped_session(sessionmaker(extension=ZopeTransactionExtension()))
+CRATE_CONNECTION = CrateConnection()
 Base = declarative_base()
 
-REFRESH_TABLES = ['projects', 'users']
+
+REFRESH_TABLES = ['projects', 'users', 'stats']
 
 
 def genuuid():
