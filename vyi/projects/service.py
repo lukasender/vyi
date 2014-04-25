@@ -121,13 +121,13 @@ class ProjectService(object):
                           "SET projects.votes['{0}'] = ? " \
                           "WHERE _version = ? AND projects.id = ?"
             if vote == "up":
-                vote = votes['up'] + 1
+                v = votes['up'] + 1
                 update_stmt = update_stmt.format('up')
             else:
-                vote = votes['down'] + 1
+                v = votes['down'] + 1
                 update_stmt = update_stmt.format('down')
 
-            cursor.execute(update_stmt, (vote, _version, proj_id,))
+            cursor.execute(update_stmt, (v, _version, proj_id,))
             if cursor.rowcount == 1:
                 successful = True
             else:
