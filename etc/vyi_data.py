@@ -11,9 +11,9 @@ from Queue import Queue
 
 USERS = ["lumannnn", "luibär", "albert_einstein", "nikola_tesla"]
 
-vote_x_times = 1000
+vote_x_times = 20
 
-max_concurrent_connections = 2
+max_concurrent_connections = 1
 q = Queue(max_concurrent_connections * 2)
 
 lock = Lock()
@@ -47,38 +47,41 @@ def vote(project_id, queue, voting):
     while True:
         try:
             i = queue.get()
-            v = random.choice(['up', 'down'])
+            v = 'up' # random.choice(['up', 'down'])
             url = BASEURL + '/projects/vote_ec'
             payload = {
                 'project_id': project_id,
-                'vote': v
+                'vote': v,
+                'task_id': i
             }
-            with Timer(True):
-                r = requests.post(url, data=json.dumps(payload),
-                                  headers=headers)
-                rJson = r.json()
-                lock.acquire()
-                print "voted for project.id '{0}': {1}".format(project_id, v)
+            r = requests.post(url, data=json.dumps(payload),
+                              headers=headers)
+            rJson = r.json()
+            with lock:
+                print "[task_id: {0}]: voted for p.id '{1}': {2}".format(
+                    i, project_id, v
+                )
                 msg = rJson['msg'] if rJson['status'] == 'failed' else ''
                 if v == 'up':
                     voting['up'] += 1
                 else:
                     voting['down'] += 1
-                print 'task {0}, {1}: {2}, {3}'.format(i, r.status_code,
-                                                       r.text, msg)
-                lock.release()
-        except Exception as e:
-            lock.acquire()
-            print '-'*40
-            print r.reason, r.text
-            print e
-            print '-'*40
-            lock.release()
+                print '[task_id: {0}]: {1}: {2}, {3}'.format(
+                    i,
+                    r.status_code,
+                    r.text, msg
+                )
+        except ValueError as e:
+            with lock:
+                print '-'*40
+                print type(e)
+                print r.reason, r.text
+
+                print e
+                print '-'*40
         finally:
-            lock.acquire()
-            print '`--- finishing task {0}'.format(i)
-            queue.task_done()
-            lock.release()
+            with lock:
+                queue.task_done()
 
 
 def release_the_kraken():
@@ -91,6 +94,7 @@ def release_the_kraken():
         errors = []
 
         project_id = random.choice(p_ids)
+        print "----------->>>>>>>>>>>>>>>> starting to vote"
         for i in range(max_concurrent_connections):
             th = Thread(target=vote, args=(project_id, q, voting,))
             th.setDaemon(True)

@@ -31,6 +31,10 @@ VOTE_SCHEMA = {
         },
         'vote': {
             'enum': ['up', 'down']
+        },
+        'task_id': {
+            'type': 'number',
+            'required': False
         }
     }
 }
@@ -96,7 +100,7 @@ class ProjectService(object):
     @rpcmethod_route(route_suffix="/vote", request_method="POST")
     @validate(VOTE_SCHEMA)
     @refresher
-    def vote(self, vote, project_id):
+    def vote(self, vote, project_id, task_id=None):
         query = DB_SESSION.query(Project).filter(Project.id == project_id)
         project = query.one()
         if vote == 'up':
@@ -104,11 +108,13 @@ class ProjectService(object):
         else:
             project.votes['down'] += 1
         transaction.commit()
+        if task_id is not None:
+            print "executed by task_id '{0}'".format(task_id)
         return {"status":"success"}
 
     @rpcmethod_route(route_suffix="/vote_ec", request_method="POST")
     @validate(VOTE_SCHEMA)
-    def vote_ec(self, vote, project_id):
+    def vote_ec(self, vote, project_id, task_id=None):
         successful = False
         max_retries = retries = 5
         while not successful and retries > 0:
@@ -118,30 +124,43 @@ class ProjectService(object):
             cursor.execute("SELECT _version, projects.id, projects.votes " \
                            "FROM projects WHERE projects.id = ?", (project_id,))
             _version, proj_id, votes = cursor.fetchone()
-            update_stmt = "UPDATE projects " \
-                          "SET projects.votes['{0}'] = ? " \
-                          "WHERE _version = ? AND projects.id = ?"
-            if vote == "up":
-                v = votes['up'] + 1
-                update_stmt = update_stmt.format('up')
-            else:
-                v = votes['down'] + 1
-                update_stmt = update_stmt.format('down')
-
-            cursor.execute(update_stmt, (v, _version, proj_id,))
+            print "[task_id: {0}]: _version: {1}, proj_id: "\
+                  "{2}, votes: {3}, try: {4}".format(
+                task_id, _version, proj_id, votes, max_retries - retries + 1
+            )
+            update_stmt = prepare_update_statement(vote)
+            new_vote = increase_vote(vote, votes)
+            cursor.execute(update_stmt, (new_vote, _version, proj_id,))
             if cursor.rowcount == 1:
                 successful = True
             else:
                 retries -= 1
 
         if successful:
-            return {"status":"success",
-                    "msg": "successful after {0} (re)tries".format(
-                        max_retries - retries + 1
-                    )
-                   }
+            return {
+                "status":"success",
+                "msg": "[task_id: {0}] successful after {1} (re)tries".format(
+                    task_id, max_retries - retries + 1
+                )
+            }
         else:
             return {"status":"failed", "msg": "something went wrong."}
+
+
+def prepare_update_statement(vote):
+    update_stmt = "UPDATE projects " \
+                  "SET projects.votes['{0}'] = ? " \
+                  "WHERE _version = ? AND projects.id = ?"
+    if vote == "up":
+        update_stmt = update_stmt.format('up')
+    else:
+        update_stmt = update_stmt.format('down')
+    return update_stmt
+
+
+def increase_vote(vote, votes):
+    v = votes['up'] + 1 if vote == "up" else votes['down'] + 1
+    return v
 
 
 def create_project(project, user):
