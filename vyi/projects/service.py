@@ -2,13 +2,12 @@ from lovely.pyrest.rest import RestService, rpcmethod_route
 from lovely.pyrest.validation import validate
 
 from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
-from sqlalchemy.sql import text
 
 from vyi.users.model import User
 from vyi.projects.model import Project
-from ..model import DB_SESSION, CRATE_CONNECTION, Base, refresher
+from ..model import DB_SESSION, CRATE_CONNECTION, refresher
 
-import transaction
+import time
 
 
 PROJECTS_SCHEMA = {
@@ -35,6 +34,21 @@ VOTE_SCHEMA = {
         'task_id': {
             'type': 'number',
             'required': False
+        }
+    }
+}
+
+COMMENT_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'project_id': {
+            'type': 'string'
+        },
+        'user_id': {
+            'type': 'string'
+        },
+        'comment': {
+            'type': 'string'
         }
     }
 }
@@ -97,40 +111,35 @@ class ProjectService(object):
         DB_SESSION.add(project)
         return {"status":"success"}
 
-    @rpcmethod_route(route_suffix="/vote", request_method="POST")
+    @rpcmethod_route(route_suffix="/vote_ec_1", request_method="POST")
     @validate(VOTE_SCHEMA)
-    @refresher
-    def vote(self, vote, project_id, task_id=None):
-        query = DB_SESSION.query(Project).filter(Project.id == project_id)
-        project = query.one()
-        if vote == 'up':
-            project.votes['up'] += 1
-        else:
-            project.votes['down'] += 1
-        transaction.commit()
-        if task_id is not None:
-            print "executed by task_id '{0}'".format(task_id)
-        return {"status":"success"}
-
-    @rpcmethod_route(route_suffix="/vote_ec", request_method="POST")
-    @validate(VOTE_SCHEMA)
-    def vote_ec(self, vote, project_id, task_id=None):
+    def vote_ec_1(self, vote, project_id, task_id=None):
         successful = False
         max_retries = retries = 5
         while not successful and retries > 0:
+            current_retries = max_retries - retries + 1
             cursor = CRATE_CONNECTION().cursor()
             cursor.execute("REFRESH TABLE projects")
-            cursor.fetchall()
             cursor.execute("SELECT _version, projects.id, projects.votes " \
                            "FROM projects WHERE projects.id = ?", (project_id,))
             _version, proj_id, votes = cursor.fetchone()
-            print "[task_id: {0}]: _version: {1}, proj_id: "\
-                  "{2}, votes: {3}, try: {4}".format(
-                task_id, _version, proj_id, votes, max_retries - retries + 1
+            print "[task_id: {task_id}]: _version: {ver}, proj_id: "\
+                  "{p_id}, votes: {votes}, tries: {tries}".format(
+                task_id=task_id,
+                ver=_version,
+                p_id=proj_id,
+                votes=votes,
+                tries=current_retries
             )
-            update_stmt = prepare_update_statement(vote)
-            new_vote = increase_vote(vote, votes)
-            cursor.execute(update_stmt, (new_vote, _version, proj_id,))
+            new_vote = votes['up'] + 1 if vote == "up" else votes['down'] + 1
+            upd_stmt = "UPDATE projects " \
+                       "SET projects.votes['{0}'] = ? " \
+                       "WHERE _version = ? AND projects.id = ?"
+            if vote == "up":
+                upd_stmt = upd_stmt.format('up')
+            else:
+                upd_stmt = upd_stmt.format('down')
+            cursor.execute(upd_stmt, (new_vote, _version, proj_id,))
             if cursor.rowcount == 1:
                 successful = True
             else:
@@ -140,27 +149,67 @@ class ProjectService(object):
             return {
                 "status":"success",
                 "msg": "[task_id: {0}] successful after {1} (re)tries".format(
-                    task_id, max_retries - retries + 1
+                    task_id,
+                    max_retries - retries + 1
                 )
             }
         else:
             return {"status":"failed", "msg": "something went wrong."}
 
+    @rpcmethod_route(route_suffix="/vote_ec_2", request_method="POST")
+    @validate(VOTE_SCHEMA)
+    def vote_ec_2(self, vote, project_id, task_id=None):
+        cursor = CRATE_CONNECTION().cursor()
+        cursor.execute("REFRESH TABLE projects")
+        cursor.execute("SELECT projects.id " \
+                       "FROM projects WHERE projects.id = ?", (project_id,))
+        proj_id = cursor.fetchone()
+        if not proj_id:
+            return bad_request("unknown project")
+        else:
+            print "[task_id: {task_id}]: proj_id: {p_id}".format(
+                task_id=task_id,
+                p_id=proj_id
+            )
+            stmt = "INSERT INTO votes " \
+                   "(project_id, up, down) " \
+                   "VALUES (?, ?, ?)"
+            print stmt
+            up = down = 0
+            if vote == "up":
+                up = 1
+            else:
+                down = 1
+            cursor.execute(
+                stmt,
+                (project_id, up, down)
+            )
+            return {"status": "success"}
 
-def prepare_update_statement(vote):
-    update_stmt = "UPDATE projects " \
-                  "SET projects.votes['{0}'] = ? " \
-                  "WHERE _version = ? AND projects.id = ?"
-    if vote == "up":
-        update_stmt = update_stmt.format('up')
-    else:
-        update_stmt = update_stmt.format('down')
-    return update_stmt
-
-
-def increase_vote(vote, votes):
-    v = votes['up'] + 1 if vote == "up" else votes['down'] + 1
-    return v
+    @rpcmethod_route(route_suffix="/comment", request_method="POST")
+    @validate(COMMENT_SCHEMA)
+    def comment(self, project_id, user_id, comment):
+        cursor = CRATE_CONNECTION().cursor()
+        timestamp = time.time()
+        cursor.execute("SELECT id FROM projects WHERE id = ?", (project_id,))
+        p_id = cursor.fetchone()
+        cursor.execute("SELECT id from users WHERE id = ?", (user_id,))
+        u_id = cursor.fetchone()
+        if not p_id:
+            return bad_request("unknown project")
+        elif not u_id:
+            return bad_request("unknown user")
+        else:
+            stmt = "INSERT INTO comments " \
+                   "(project_id, user_id, " \
+                   "comment, timestamp) " \
+                   "VALUES (?, ?, ?, ?)"
+            print stmt
+            cursor.execute(
+                stmt,
+                (project_id, user_id, comment, timestamp)
+            )
+            return {"status": "success"}
 
 
 def create_project(project, user):
