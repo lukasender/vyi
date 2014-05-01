@@ -18,5 +18,5 @@ backend ap_backend
  option httpchk GET /probe_status
  fullconn 500
 
- server ap_ap1_localhost localhost:${app} minconn 5 maxconn 50 check
- server ap_ap2_localhost localhost:${app2} minconn 5 maxconn 50 check
+ server ap_ap1_localhost localhost:${app}
+ server ap_ap2_localhost localhost:${app2}
