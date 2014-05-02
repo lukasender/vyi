@@ -28,13 +28,8 @@ create table comments (
 ) clustered by (user_id) with (refresh_interval=2500);
 
 create table stats (
-    id string primary key,
-    project_id string primary key,
-    votes array(
-        object as (
-            "timestamp" timestamp,
-            up int,
-            down int
-        )
-    )
+    project_id string,
+    "timestamp" timestamp,
+    up int,
+    down int
 );

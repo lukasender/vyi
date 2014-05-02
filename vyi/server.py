@@ -2,8 +2,6 @@ from pyramid.settings import aslist, asbool
 from pyramid.config import Configurator
 from sqlalchemy import create_engine
 
-from crate.client import connect
-
 from .model import DB_SESSION, Base, CRATE_CONNECTION
 
 
@@ -21,6 +19,8 @@ def app_factory(global_config, **settings):
     config.scan('vyi.users')
     config.include('vyi.projects.service')
     config.scan('vyi.projects')
+    config.include('vyi.stats.service')
+    config.scan('vyi.stats')
     crate_init(config)
     return config.make_wsgi_app()
 
