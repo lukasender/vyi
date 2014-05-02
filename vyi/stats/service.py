@@ -46,7 +46,6 @@ def insert_new_stats(project_id, votes):
     cursor.execute("SELECT votes FROM projects " \
                        "WHERE id = ?", (project_id,))
     actual_votes = cursor.fetchone()[0]
-    msg = "used values:  {0}\nactual values {1}".format(votes, actual_votes)
     cursor.execute(
         "INSERT INTO stats (project_id, \"timestamp\", up, down) " \
         "VALUES (?, ?, ?, ?)",
@@ -57,6 +56,10 @@ def insert_new_stats(project_id, votes):
             votes['down']
         )
     )
+    msg = {
+        "used": votes,
+        "actual": actual_votes
+    }
     return True, msg
 
 

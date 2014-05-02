@@ -11,7 +11,7 @@ from Queue import Queue
 
 USERS = ["lumannnn", "luibär", "albert_einstein", "nikola_tesla"]
 
-vote_x_times = 200
+vote_x_times = 50
 
 max_concurrent_votes = 4
 max_concurrent_refreshes = 1
@@ -49,8 +49,7 @@ def release_the_kraken():
         start_daemons(max_concurrent_refreshes, refresh, refresh_args_ec_1)
         for i in range(vote_x_times):
             refresh_vote_ec_1_queue.put(i)
-            if i % 2 == 0:
-                refresh_ec_1_queue.put(i)
+            refresh_ec_1_queue.put(i)
         refresh_vote_ec_1_queue.join()
         refresh_ec_1_queue.join()
 
@@ -116,7 +115,14 @@ def refresh(project_id, queue, url):
                 print "[task_id: {0}]: refreshed for p.id '{1}'".format(
                     i, project_id
                 )
-                print "[task_id: {0}]: got:\n{1}".format(i, rJson['msg'])
+                used = rJson['msg']['used']
+                actual = rJson['msg']['actual']
+                if used['up'] != actual['up'] or used['down'] != actual['down']:
+                    print "[task_id: {0}]: different:".format(i)
+                    print "used:   {0}".format(used)
+                    print "actual: {0}".format(actual)
+                else:
+                    print "[task_id: {0}]: no conflict.".format(i)
         except ValueError as e:
             with lock:
                 print_error(e)
