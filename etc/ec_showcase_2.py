@@ -11,15 +11,13 @@ from Queue import Queue
 
 USERS = ["lumannnn", "luibär", "albert_einstein", "nikola_tesla"]
 
-vote_x_times = 100
-comment_x_times = 1000
+vote_x_times = 50
 
-max_concurrent_votes = 2
-max_concurrent_comments = 3
+max_concurrent_votes = 4
+max_concurrent_refreshes = 1
 
-voteing_ec_1_queue = Queue(max_concurrent_votes * 2)
-voteing_ec_2_queue = Queue(max_concurrent_votes * 2)
-commenting_queue = Queue(max_concurrent_comments * 2)
+refresh_vote_ec_1_queue = Queue(max_concurrent_votes * 2)
+refresh_ec_1_queue = Queue(max_concurrent_refreshes * 2)
 
 lock = Lock()
 
@@ -29,8 +27,7 @@ headers = {'content-type':'application/json'}
 
 def release_the_kraken():
     try:
-        voting_ec_1 = {'up': 0, 'down': 0}
-        voting_ec_2 = {'up': 0, 'down': 0}
+        voting_refresh = {'up': 0, 'down': 0}
         url_projects = BASEURL + '/projects'
         url_users = BASEURL + '/users'
         r = requests.get(url_projects)
@@ -38,46 +35,24 @@ def release_the_kraken():
         r = requests.get(url_users)
         users = [user for user in r.json()['data']['users']]
 
-        errors = []
-
-        proj_id = random.choice(p_ids)
         user = random.choice(users)
         vote_ec_1_url = BASEURL + '/projects/vote_ec_1'
-        vote_ec_2_url = BASEURL + '/projects/vote_ec_2'
-        args_ec_1 = (proj_id, voteing_ec_1_queue, voting_ec_1, vote_ec_1_url)
-        args_ec_2 = (proj_id, voteing_ec_2_queue, voting_ec_2, vote_ec_2_url)
+        refresh_ec_1_url = BASEURL + '/stats/refresh_ec_1'
 
-        print "--> starting to vote (ec_1)"
-        start_daemons(max_concurrent_votes, vote, args_ec_1)
-        start_task_and_wait(vote_x_times, voteing_ec_1_queue)
 
-        print "--> starting to vote (ec_2)"
-        start_daemons(max_concurrent_votes, vote, args_ec_2)
-        start_task_and_wait(vote_x_times, voteing_ec_2_queue)
+        refresh_vote_args_ec_1 = (p_ids[1], refresh_vote_ec_1_queue,
+                                  voting_refresh, vote_ec_1_url)
+        refresh_args_ec_1 = (p_ids[1], refresh_ec_1_queue, refresh_ec_1_url)
 
-        args_comments = (proj_id, user, commenting_queue)
-        start_daemons(max_concurrent_comments, comment, args_comments)
-        start_task_and_wait(comment_x_times, commenting_queue)
+        print "--> starting to vote (ec_1) and refresh the stats"
+        start_daemons(max_concurrent_votes, vote, refresh_vote_args_ec_1)
+        start_daemons(max_concurrent_refreshes, refresh, refresh_args_ec_1)
+        for i in range(vote_x_times):
+            refresh_vote_ec_1_queue.put(i)
+            refresh_ec_1_queue.put(i)
+        refresh_vote_ec_1_queue.join()
+        refresh_ec_1_queue.join()
 
-        up_ec_1 = voting_ec_1['up']
-        down_ec_1 = voting_ec_1['down']
-
-        up_ec_2 = voting_ec_2['up']
-        down_ec_2 = voting_ec_2['down']
-
-        print "Done!"
-        print "I did a total voting (ec_1) of {0} (down: {1}, up: {2}) "\
-              "for project_id '{3}'".format(
-                (up_ec_1+down_ec_1), down_ec_1, up_ec_1, proj_id
-              )
-        print "I did a total voting (ec_2) of {0} (down: {1}, up: {2}) "\
-              "for project_id '{3}'".format(
-                (up_ec_2+down_ec_2), down_ec_2, up_ec_2, proj_id
-              )
-        print "User '{0}' commented {1} times for project_id {2}'".format(
-            user['nickname'], comment_x_times, proj_id
-        )
-        print errors
     except KeyboardInterrupt:
         sys.exit(1)
 
@@ -123,40 +98,44 @@ def vote(project_id, queue, voting, url):
                 )
         except ValueError as e:
             with lock:
-                print '-'*40
-                print type(e)
-                print e
-                print '-'*40
+                print_error(e)
         finally:
             with lock:
                 queue.task_done()
 
 
-def comment(project_id, user, queue):
+def refresh(project_id, queue, url):
     while True:
         try:
             i = queue.get()
-            cmt = "A comment {0}, by {1}".format(i, user['nickname'])
-            url = BASEURL + '/projects/comment'
-            payload = {
-                'project_id': project_id,
-                'user_id': user['id'],
-                'comment': cmt
-            }
+            payload = {"project_id": project_id}
             r = requests.post(url, data=json.dumps(payload), headers=headers)
             rJson = r.json()
             with lock:
-                print "[task_id: {0}] commented: {1}, '{2}'".format(i, cmt,
-                                                                    rJson)
+                print "[task_id: {0}]: refreshed for p.id '{1}'".format(
+                    i, project_id
+                )
+                used = rJson['msg']['used']
+                actual = rJson['msg']['actual']
+                if used['up'] != actual['up'] or used['down'] != actual['down']:
+                    print "[task_id: {0}]: different:".format(i)
+                    print "used:   {0}".format(used)
+                    print "actual: {0}".format(actual)
+                else:
+                    print "[task_id: {0}]: no conflict.".format(i)
         except ValueError as e:
             with lock:
-                print '-'*40
-                print type(e)
-                print e
-                print '-'*40
+                print_error(e)
         finally:
             with lock:
                 queue.task_done()
+
+
+def print_error(e):
+    print '-'*40
+    print type(e)
+    print e
+    print '-'*40
 
 
 class Timer(object):
