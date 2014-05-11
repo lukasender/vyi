@@ -11,6 +11,10 @@ REGISTER_SCHEMA = {
     'properties': {
         'nickname': {
             'type': 'string'
+        },
+        'balance': {
+            'type': 'number',
+            'required': False
         }
     }
 }
@@ -31,18 +35,25 @@ class UserService(object):
         for user in users:
             result.append({
                 "id": user.id,
-                "nickname": user.nickname
+                "nickname": user.nickname,
+                "balance": user.balance
             })
         return {"data": {"users": result}}
 
     @rpcmethod_route(route_suffix="/register", request_method="POST")
     @validate(REGISTER_SCHEMA)
     @refresher
-    def register(self, nickname):
+    def register(self, nickname, balance=None):
         """ Register a new user """
         user = User()
         user.id = genid(nickname)
         user.nickname = nickname
+        if balance:
+            try:
+                user.balance = float(balance)
+            except ValueError:
+                return {"status": "failed",
+                        "msg":"balance must be a number."}
         try:
             DB_SESSION.add(user)
             return {"status": "success"}

@@ -21,6 +21,8 @@ def app_factory(global_config, **settings):
     config.scan('vyi.projects')
     config.include('vyi.stats.service')
     config.scan('vyi.stats')
+    config.include('vyi.transactions.service')
+    config.scan('vyi.transactions')
     crate_init(config)
     return config.make_wsgi_app()
 

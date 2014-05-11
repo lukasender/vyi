@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String
+from sqlalchemy import Column, String, Float
 from vyi.model import Base
 
 
@@ -8,3 +8,4 @@ class User(Base):
 
     id = Column('id', String, primary_key=True)
     nickname = Column('nickname', String, primary_key=True)
+    balance = Column('balance', Float)

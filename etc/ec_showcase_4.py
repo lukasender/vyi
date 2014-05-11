@@ -1,7 +1,6 @@
 # -*- coding: utf-8; -*-
 import sys
 import requests
-import random
 import json
 import time
 
@@ -11,11 +10,11 @@ from Queue import Queue
 
 USERS = ["elon_musk", "albert_einstein", "nikola_tesla", "lovelace"]
 
-comment_x_times = 1000
+x_transactions = 10
 
-max_concurrent_comments = 3
+max_concurrent_transactions = 1
 
-commenting_queue = Queue(max_concurrent_comments * 2)
+transactions_queue = Queue(max_concurrent_transactions * 2)
 
 lock = Lock()
 
@@ -25,24 +24,19 @@ headers = {'content-type':'application/json'}
 
 def release_the_kraken():
     try:
-        url_projects = BASEURL + '/projects'
         url_users = BASEURL + '/users'
-        r = requests.get(url_projects)
-        p_ids = [project['id'] for project in r.json()['data']['projects']]
         r = requests.get(url_users)
         users = [user for user in r.json()['data']['users']]
 
-        proj_id = p_ids[0]
-        user = random.choice(users)
+        sender = users[0]
+        receiver = users[1]
 
-        args_comments = (proj_id, user, commenting_queue)
-        start_daemons(max_concurrent_comments, comment, args_comments)
-        start_task_and_wait(comment_x_times, commenting_queue)
+        args_transaction = (sender, receiver, transactions_queue)
+        start_daemons(max_concurrent_transactions, transaction,
+                      args_transaction)
+        start_task_and_wait(x_transactions, transactions_queue)
 
         print "Done!"
-        print "User '{0}' commented {1} times for project_id {2}'".format(
-            user['nickname'], comment_x_times, proj_id
-        )
     except KeyboardInterrupt:
         sys.exit(1)
 
@@ -55,26 +49,31 @@ def start_daemons(max_concurrency, target, args):
 
 
 def start_task_and_wait(num_tasks, task_queue):
-    for i in range(num_tasks):
+    for i in range(1, num_tasks + 1):
         task_queue.put(i)
     task_queue.join()
 
 
-def comment(project_id, user, queue):
+def transaction(sender, receiver, queue):
     while True:
         try:
             i = queue.get()
-            cmt = "A comment {0}, by {1}".format(i, user['nickname'])
-            url = BASEURL + '/projects/comment'
+            amount = i
+            cmt = "Sending {0} from {1} to {2}".format(
+                amount,
+                sender['nickname'],
+                receiver['nickname']
+            )
+            url = BASEURL + '/transactions/u2u'
             payload = {
-                'project_id': project_id,
-                'user_id': user['id'],
-                'comment': cmt
+                'sender': sender['id'],
+                'receiver': receiver['id'],
+                'amount': amount
             }
             r = requests.post(url, data=json.dumps(payload), headers=headers)
             rJson = r.json()
             with lock:
-                print "[task_id: {0}] commented: {1}, '{2}'".format(i, cmt,
+                print "[task_id: {0}] transaction: {1}, '{2}'".format(i, cmt,
                                                                     rJson)
         except ValueError as e:
             with lock:

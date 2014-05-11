@@ -1,6 +1,7 @@
 create table users (
     id string primary key,
-    nickname string primary key
+    nickname string primary key,
+    balance double
 );
 
 create table projects (
@@ -11,7 +12,18 @@ create table projects (
     votes object as (
         up int,
         down int
-    )
+    ),
+    balance double
+);
+
+create table transactions (
+    id string primary key,
+    "timestamp" timestamp,
+    sender string,
+    receiver string,
+    amount double,
+    type string,
+    state string
 );
 
 create table votes (
