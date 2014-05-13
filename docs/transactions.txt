@@ -1,0 +1,192 @@
+============
+Transactions
+============
+
+This test suite tests the 2 phase-commit transaction implementation.
+
+User to User (u2u) transactions
+===============================
+
+A user can tranfser balance from his account to another users' account.
+The transaction process is performed via a 2 phase-commit.
+
+The first phase accepts a new transaction from a user.
+The second phase moves the amount from the sender to the receiver and takes
+care of data consistency.
+
+Setup of the suite
+------------------
+
+    >>> from crate.client import connect
+    >>> import requests
+    >>> import json
+
+Establish a connection to the database::
+
+    >>> connection = connect(crate_host)
+
+Get the cursor to execute SQL statements::
+
+    >>> cursor = connection.cursor()
+    >>> cursor.rowcount
+    -1
+
+Ensure, that all required tables exist::
+
+    >>> stmt = "SELECT table_name "\
+    ...        "FROM information_schema.tables "\
+    ...        "WHERE schema_name = 'doc' ORDER BY table_name"
+    >>> cursor.execute(stmt)
+    >>> cursor.fetchall()
+    [[u'projects'], [u'stats'], [u'transactions'], [u'users']]
+
+Ensure, that the app is running.
+
+    >>> app
+    <webtest.app.TestApp object at ...>
+    >>> r = app.get('/probe_status')
+    >>> r.status
+    '200 OK'
+
+Add two users::
+
+    >>> nikola_tesla = {'nickname': 'nikola_tesla', 'balance': 1000}
+    >>> elon_musk = {'nickname': 'elon_musk', 'balance': 1000}
+    >>> jacque_fresco = {'nickname': 'jacque_fresco', 'balance': 1000}
+    >>> def register_user(user):
+    ...     r = app.post_json('/users/register', user)
+    ...     return r.status, r.json['status']
+    >>> register_user(nikola_tesla)
+    ('200 OK', u'success')
+    >>> register_user(elon_musk)
+    ('200 OK', u'success')
+    >>> register_user(jacque_fresco)
+    ('200 OK', u'success')
+
+Get the id's of the users (result list of users are ordered
+by the user.nickname)::
+
+    >>> r = app.get('/users')
+    >>> r.status
+    '200 OK'
+    >>> users = r.json['data']['users']
+    >>> elon_musk = users[0]
+    >>> elon_musk['nickname']
+    u'elon_musk'
+    >>> jacque_fresco = users[1]
+    >>> jacque_fresco['nickname']
+    u'jacque_fresco'
+    >>> nikola_tesla = users[2]
+    >>> nikola_tesla['nickname']
+    u'nikola_tesla'
+
+First phase of the 2PC
+----------------------
+
+Nikola wants to transfer some of his balance to Elon, resulting in new balances
+of 900 for Nikola and 1100 for Elon Musk::
+
+    >>> transaction = {
+    ...     'sender': nikola_tesla['id'],
+    ...     'receiver': elon_musk['id'],
+    ...     'amount': 100
+    ... }
+    >>> r = app.post_json('/transactions/u2u', transaction)
+    >>> r.json['status']
+    u'success'
+
+At the same time, Elon wants to transfer some of his balance to Jacque, result
+in new balances of 600 for Elon and 1500 for Jacque::
+
+    >>> transaction = {
+    ...     'sender': elon_musk['id'],
+    ...     'receiver': jacque_fresco['id'],
+    ...     'amount': 500
+    ... }
+    >>> r = app.post_json('/transactions/u2u', transaction)
+    >>> r.json['status']
+    u'success'
+
+Let's inspect the 'transactions' table. ::
+
+    >>> refresh('transactions')
+    >>> stmt = "SELECT id, sender, receiver, amount, type, state "\
+    ...        "FROM transactions ORDER BY timestamp"
+    >>> cursor.execute(stmt)
+    >>> transactions = cursor.fetchall()
+
+Compare the results of transaction 1 (Nikola Tesla -> Elon Musk)::
+
+    >>> transactions[0][1] == nikola_tesla['id']
+    True
+    >>> transactions[0][2] == elon_musk['id']
+    True
+    >>> transactions[0][3]
+    100.0
+    >>> transactions[0][4]
+    u'u2u'
+    >>> transactions[0][5]
+    u'initial'
+
+Compare the reuslts of transaction 2 (Elon Musk -> Jacque Fresco)::
+
+    >>> transactions[1][1] == elon_musk['id']
+    True
+    >>> transactions[1][2] == jacque_fresco['id']
+    True
+    >>> transactions[1][3]
+    500.0
+    >>> transactions[1][4]
+    u'u2u'
+    >>> transactions[1][5]
+    u'initial'
+
+Second phase of the 2PC
+-----------------------
+
+Process all pending transactions::
+
+    >>> r = app.post('/transactions/process')
+    >>> r.json['status']
+    u'success'
+    >>> r.json['failed_transactions']
+    []
+
+Let's inspect the 'transactions' table again. ::
+
+    >>> refresh('transactions')
+    >>> stmt = "SELECT id, sender, receiver, state "\
+    ...        "FROM transactions ORDER BY timestamp"
+    >>> cursor.execute(stmt)
+    >>> transactions = cursor.fetchall()
+
+Compare the results of transaction 1 (Nikola Tesla -> Elon Musk)::
+
+    >>> transactions[0][1] == nikola_tesla['id']
+    True
+    >>> transactions[0][2] == elon_musk['id']
+    True
+    >>> transactions[0][3]
+    u'finished'
+
+Compare the reuslts of transaction 2 (Elon Musk -> Jacque Fresco)::
+
+    >>> transactions[1][1] == elon_musk['id']
+    True
+    >>> transactions[1][2] == jacque_fresco['id']
+    True
+    >>> transactions[1][3]
+    u'finished'
+
+Check new balance for each user::
+
+    >>> r = app.get('/users')
+    >>> r.status
+    '200 OK'
+    >>> users = r.json['data']['users']
+    >>> users[0]['nickname'], users[0]['balance']
+    (u'elon_musk', 600.0)
+    >>> users[1]['nickname'], users[1]['balance']
+    (u'jacque_fresco', 1500.0)
+    >>> users[2]['nickname'], users[2]['balance']
+    (u'nikola_tesla', 900.0)

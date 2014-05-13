@@ -3,8 +3,8 @@ from lovely.pyrest.validation import validate
 
 from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 
-from vyi.users.model import User
-from vyi.projects.model import Project
+from vyi.app.users.model import User
+from vyi.app.projects.model import Project
 from ..model import DB_SESSION, CRATE_CONNECTION, refresher
 
 import time

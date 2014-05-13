@@ -126,11 +126,10 @@ class TransactionsService(object):
             successful = process(transaction)
             if not successful:
                 failed_transactions.append(transaction)
-        print failed_transactions
         return {
             "status":"success",
             "msg":"processed all transactions",
-            "failed": failed_transactions
+            "failed_transactions": failed_transactions
         }
 
     def _process_transactions_u2u(self, transaction):
@@ -168,7 +167,7 @@ class TransactionsService(object):
                     )
             if not successful:
                 return False
-            return self._set_transaction_state(transaction, "committed")
+            return self._set_transaction_state(transaction, "finished")
         except (NoResultFound, MultipleResultsFound), e:
             print e
             return False
@@ -178,6 +177,11 @@ class TransactionsService(object):
 
     def _set_transaction_state(self, transaction, state):
         cursor = self._cursor()
+        # TODO
+        # cursor.execute("REFRESH TABLE transactions")
+        # stmt = "SELECT _version, state FROM transactions WHERE id = ?"
+        # cursor.execute(stmt, (transaction['id'],))
+        # _version, state = cursor.fetchone()
         stmt = "UPDATE transactions "\
                "SET state = ? WHERE id = ?"
         cursor.execute(stmt, (state, transaction['id'],))

@@ -2,7 +2,7 @@ from lovely.pyrest.rest import RestService, rpcmethod_route
 from lovely.pyrest.validation import validate
 from crate.client.exceptions import ProgrammingError
 
-from vyi.users.model import User
+from vyi.app.users.model import User
 from ..model import DB_SESSION, genid, refresher
 
 
@@ -27,6 +27,7 @@ class UserService(object):
         self.request = request
 
     @rpcmethod_route()
+    @refresher
     def list(self):
         """ List all registered users """
         query = DB_SESSION.query(User).order_by(User.nickname)

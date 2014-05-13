@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String
 from crate.client.sqlalchemy.types import Object
-from vyi.model import Base, genuuid
+from vyi.app.model import Base, genuuid
 
 
 class Project(Base):

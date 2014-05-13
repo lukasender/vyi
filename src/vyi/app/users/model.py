@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Float
-from vyi.model import Base
+from vyi.app.model import Base
 
 
 class User(Base):
