@@ -18,15 +18,17 @@ class CrateLayer(server.ServerLayer, layer.WorkDirectoryLayer):
     wdClean = True
 
     def __init__(self,
-                 name,
                  crate_home,
+                 cluster_name='crate-test-cluster',
+                 node_name='crate-test-node',
                  crate_config=None,
                  port=4200,
                  keepRunning=False,
                  transport_port=None,
                  crate_exec=None):
         """
-        :param name: layer name, is also used as the cluser name
+        :param node_name: layer name and the crate node name. the port is
+                          added as suffix to the crate node name.
         :param crate_home: path to home directory of the crate installation
         :param port: port on which crate should run
         :param keepRunning: do not shut down the crate instance for every
@@ -46,8 +48,8 @@ class CrateLayer(server.ServerLayer, layer.WorkDirectoryLayer):
         start_cmd = (
             crate_exec,
             '-Des.index.storage.type=memory',
-            '-Des.node.name=%s' % name,
-            '-Des.cluster.name=Testing%s' % port,
+            '-Des.node.name=%s%s' % (node_name, port),
+            '-Des.cluster.name=%s' % cluster_name,
             '-Des.http.port=%s-%s' % (port, port),
             '-Des.network.host=localhost',
             '-Des.discovery.type=zen',
@@ -57,7 +59,11 @@ class CrateLayer(server.ServerLayer, layer.WorkDirectoryLayer):
         )
         if transport_port:
             start_cmd += ('-Des.transport.tcp.port=%s' % transport_port,)
-        super(CrateLayer, self).__init__(name, servers=servers, start_cmd=start_cmd)
+        super(CrateLayer, self).__init__(
+            node_name,
+            servers=servers,
+            start_cmd=start_cmd
+        )
         self.setUpWD()
 
     def stop(self):

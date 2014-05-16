@@ -10,7 +10,7 @@ from Queue import Queue
 
 USERS = ["elon_musk", "albert_einstein", "nikola_tesla", "lovelace"]
 
-x_transactions = 10
+x_transactions = 100
 
 max_concurrent_transactions = 1
 

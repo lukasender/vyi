@@ -2,7 +2,7 @@ import unittest
 import doctest
 import os
 
-from crate.testing.layer import CrateLayer
+from vyi.testing.layer import CrateLayer
 from crate.client import connect
 
 from pyramid import paster
@@ -29,8 +29,7 @@ def crate_path(*parts):
     return docs_path('..', '..', 'parts', 'crate', *parts)
 
 
-crate_layer = CrateLayer('crate',
-                         crate_home=crate_path(),
+crate_layer = CrateLayer(crate_home=crate_path(),
                          crate_exec=crate_path('bin', 'crate'),
                          port=crate_port,
                          transport_port=crate_transport_port)
@@ -64,6 +63,7 @@ def setUpVyiTransactions(test):
 
     mappings = [
         '../../etc/mappings/users.sql',
+        '../../etc/mappings/user_transactions.sql',
         '../../etc/mappings/projects.sql',
         '../../etc/mappings/stats.sql',
         '../../etc/mappings/transactions.sql',
@@ -79,6 +79,7 @@ def tearDownVyiTransactions(test):
     conn = connect(crate_host)
     cursor = conn.cursor()
     cursor.execute("drop table users")
+    cursor.execute("drop table user_transactions")
     cursor.execute("drop table projects")
     cursor.execute("drop table stats")
     cursor.execute("drop table transactions")

@@ -38,7 +38,7 @@ Ensure, that all required tables exist::
     ...        "WHERE schema_name = 'doc' ORDER BY table_name"
     >>> cursor.execute(stmt)
     >>> cursor.fetchall()
-    [[u'projects'], [u'stats'], [u'transactions'], [u'users']]
+    [[u'projects'], [u'stats'], [u'transactions'], [u'user_transactions'], [u'users']]
 
 Ensure, that the app is running.
 

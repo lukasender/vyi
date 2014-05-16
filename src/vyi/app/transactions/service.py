@@ -3,7 +3,9 @@ from lovely.pyrest.validation import validate
 
 from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 
-from ..model import CRATE_CONNECTION, genuuid
+from ..model import genuuid, CRATE_CONNECTION
+
+from .service_util import TransactionUtil, MAX_RETRIES
 
 import time
 
@@ -30,14 +32,14 @@ STATE = [
 "finished"
 ]
 
-MAX_RETRIES = 10
-
 
 @RestService('transactions')
 class TransactionsService(object):
 
     def __init__(self, request):
         self.request = request
+        self.cursor = CRATE_CONNECTION().cursor()
+        self.util = TransactionUtil(CRATE_CONNECTION())
 
     @rpcmethod_route()
     def transactions(self):
@@ -53,32 +55,13 @@ class TransactionsService(object):
     def transaction_user_to_user(self, sender, receiver, amount):
         if amount <= 0:
             return bad_request("'amount' must be a number > 0.")
-        cursor = self._cursor()
-        cursor.execute("REFRESH TABLE users")
-        if not self._user_exists(sender):
+        self.util.refresh("users")
+        if not self.util.user_exists(sender):
             return bad_request("unknown 'sender'")
-        if not self._user_exists(receiver):
+        if not self.util.user_exists(receiver):
             return bad_request("unknown 'receiver'")
         try:
-            sender_user_id = self._user_balance_sufficient(sender, amount)
-            # what we really would want to have is something like the
-            # following:
-            #
-            #   WITH sufficient_balance AS (
-            #       SELECT
-            #           genuuid(),
-            #           time.time(),
-            #           sender,
-            #           receiver,
-            #           amount,
-            #           "u2u"
-            #           "initial"
-            #       FROM users
-            #       WHERE users.id = sender
-            #       AND users.amount >= amount
-            #   )
-            #   INSERT INTO transactions
-            #   SELECT * FROM sufficient_balance;
+            self.util.user_balance_sufficient(sender, amount)
             stmt = "INSERT INTO transactions "\
                    "(id,\"timestamp\",sender,receiver,amount,type,state) "\
                    "VALUES (?, ?, ?, ? ,?, ?, ?)"
@@ -92,8 +75,8 @@ class TransactionsService(object):
                 "u2u",
                 "initial",
             )
-            cursor.execute(stmt, args)
-            if cursor.rowcount == 1:
+            self.cursor.execute(stmt, args)
+            if self.cursor.rowcount == 1:
                 return {"status":"success"}
             return bad_request("could not add the new transaction.")
         except (NoResultFound, MultipleResultsFound):
@@ -101,17 +84,11 @@ class TransactionsService(object):
 
     @rpcmethod_route(route_suffix="/process", request_method="POST")
     def process_transactions(self):
-        cursor = self._cursor()
         stmt = "SELECT id, sender, receiver, amount, type, state "\
-               "FROM transactions WHERE state = ?"
-        cursor.execute(stmt, ("initial",))
-        transactions = cursor.fetchall()
+               "FROM transactions WHERE state != ?"
+        self.cursor.execute(stmt, ("finished",))
+        transactions = self.cursor.fetchall()
         failed_transactions = []
-        def _process_transaction(transaction_type):
-            if transaction_type == "u2u":
-                return self._process_transactions_u2u
-            if transaction_type == "u2p":
-                return self._process_transactions_u2p
 
         for t in transactions:
             transaction = {
@@ -122,8 +99,7 @@ class TransactionsService(object):
                 'type': t[4],
                 'state': t[5]
             }
-            process = _process_transaction(transaction['type'])
-            successful = process(transaction)
+            successful = self._process_transactions(transaction)
             if not successful:
                 failed_transactions.append(transaction)
         return {
@@ -132,95 +108,144 @@ class TransactionsService(object):
             "failed_transactions": failed_transactions
         }
 
-    def _process_transactions_u2u(self, transaction):
-        successful = self._set_transaction_state(transaction, "in progress")
-        if not successful:
-            return False
-        try:
-            sender = transaction['sender']
-            receiver = transaction['receiver']
-            amount = transaction['amount']
-            successful = False
-            tries = MAX_RETRIES
-            while not successful and tries > 0:
-                tries -= 1
-                s_version, s_balance = self._get_balance_for(sender)
-                new_balance = s_balance - amount
-                successful = self._update_user_balance(
-                        user_id=sender,
-                        orig_version=s_version,
-                        new_balance=new_balance
-                    )
-            if not successful:
-                return False
-            # reset for second account
-            tries = MAX_RETRIES
-            successful = False
-            while not successful and tries > 0:
-                r_version, r_balance = self._get_balance_for(receiver)
-                tries -= 1
-                new_balance = r_balance + amount
-                successful = self._update_user_balance(
-                        user_id=receiver,
-                        orig_version=r_version,
-                        new_balance=new_balance
-                    )
-            if not successful:
-                return False
-            return self._set_transaction_state(transaction, "finished")
-        except (NoResultFound, MultipleResultsFound), e:
-            print e
-            return False
+    def _process_transactions(self, transaction):
+        def __get_process(state):
+            if state == 'initial':
+                return self._process_transaction_initial
+            elif state == 'in progress':
+                return self._process_transaction_inprogress
+            elif state == 'committed':
+                return self._process_transaction_committed
+            return self._process_critial_error
 
-    def _process_transactions_u2p(self, transaction):
+        process = __get_process(transaction['state'])
+        return process(transaction)
+
+    def _process_transaction_initial(self, transaction):
+        """
+        Processes a transaction with the state 'initial'.
+        """
+        ok = self.util.set_transaction_state(transaction, 'in progress')
+        # TODO in progress by...
+        if not ok:
+            return False
+        ok = self._update_balance_sender(transaction, 'pending')
+        if not ok:
+            return False
+        # reset for second account
+        ok = self._update_balance_receiver(transaction, 'pending')
+        if not ok:
+            return False
+        ok = self.util.set_transaction_state(transaction, 'committed')
+        if not ok:
+            return False
+        ok = self._update_pending_user_transaction_sender(transaction)
+        if not ok:
+            return False
+        ok = self._update_pending_user_transaction_receiver(transaction)
+        if not ok:
+            return False
+        # TODO, remove 'in progress by'
+        return self.util.set_transaction_state(transaction, 'finished')
+
+    def _process_transaction_inprogress(self, transaction):
+        """
+        A transaction was found with state 'in progress'.
+        This process needs to check if any other process is processing the
+        given transaction.
+        If another process is processing the transaction, this process will do
+        nothing.
+        If not, this process continues accordingly.
+        """
+        # TODO
+        # check if an other process is processing this transaction?
+        user_transactions = self.util.get_user_transaction(transaction)
+        u_ta_sender = user_transactions['sender']
+        u_ta_receiver = user_transactions['receiver']
+        if u_ta_sender is None:
+            ok = self._update_balance_sender(transaction, 'pending')
+            if not ok:
+                return False
+        if u_ta_receiver is None:
+            ok = self._update_balance_receiver(transaction, 'pending')
+            if not ok:
+                return False
+        ok = self.util.set_transaction_state(transaction, 'committed')
+        if not ok:
+            return False
+        ok = self._update_pending_user_transaction_sender(transaction)
+        if not ok:
+            return False
+        ok = self._update_pending_user_transaction_receiver(transaction)
+        if not ok:
+            return False
+        return self.util.set_transaction_state(transaction, "finished")
+
+    def _process_transaction_committed(self, transaction):
+        """
+        A transaction was found with the state 'committed'.
+        This process needs to check if any other process is processing the
+        given transaction.
+        If another process is processing the transaction, this process will do
+        nothing.
+        If not, this process continues accordingly.
+        """
+        # TODO
+        # check if an other process is processing this transaction?
+        user_transactions = self.util.get_user_transaction(transaction)
+        u_ta_sender = user_transactions['sender']
+        u_ta_receiver = user_transactions['receiver']
+        if u_ta_sender['state'] == 'pending':
+            ok = self._update_pending_user_transaction_sender(transaction)
+            if not ok:
+                return False
+        if u_ta_receiver['state'] == 'pending':
+            ok = self._update_pending_user_transaction_receiver(transaction)
+            if not ok:
+                return False
+        return self.util.set_transaction_state(transaction, 'finished')
+
+    def _process_critial_error(self, transaction):
+        """
+        Mother of god! A critical error occurred. Only a human can now help...
+        """
+        # TODO
+        # notify a human
         pass
 
-    def _set_transaction_state(self, transaction, state):
-        cursor = self._cursor()
-        # TODO
-        # cursor.execute("REFRESH TABLE transactions")
-        # stmt = "SELECT _version, state FROM transactions WHERE id = ?"
-        # cursor.execute(stmt, (transaction['id'],))
-        # _version, state = cursor.fetchone()
-        stmt = "UPDATE transactions "\
-               "SET state = ? WHERE id = ?"
-        cursor.execute(stmt, (state, transaction['id'],))
-        if cursor.rowcount == 1:
-            return True
-        return False
+    def _update_balance_sender(self, transaction, state):
+        ta_id = transaction['id']
+        sender = transaction['sender']
+        amount = -transaction['amount']
+        return self.util.update_user_balance(
+            user_id=sender,
+            transaction_id=ta_id,
+            amount=amount,
+            state=state
+        )
 
-    def _get_balance_for(self, user_id):
-        cursor = self._cursor()
-        cursor.execute("REFRESH TABLE users")
-        stmt = "SELECT _version, balance FROM users WHERE id = ?"
-        cursor.execute(stmt, (user_id,))
-        return cursor.fetchone()
+    def _update_balance_receiver(self, transaction, state):
+        ta_id = transaction['id']
+        receiver = transaction['receiver']
+        amount = transaction['amount']
+        return self.util.update_user_balance(
+            user_id=receiver,
+            transaction_id=ta_id,
+            amount=amount,
+            state=state
+        )
 
-    def _update_user_balance(self, user_id, orig_version, new_balance):
-        cursor = self._cursor()
-        stmt = "UPDATE users "\
-               "SET balance = ? " \
-               "WHERE id = ? AND _version = ?"
-        cursor.execute(stmt, (new_balance, user_id, orig_version))
-        if cursor.rowcount == 1:
-            return True
-        return False
+    def _update_pending_user_transaction_sender(self, transaction):
+        transaction_id = transaction['id']
+        user_id = transaction['sender']
+        return self.util.update_pending_user_transaction(transaction_id,
+                                                         user_id)
 
-    def _user_balance_sufficient(self, sender, amount):
-        cursor = self._cursor()
-        stmt = "SELECT _id FROM users WHERE id = ? AND balance >= ?"
-        cursor.execute(stmt, (sender, amount,))
-        return cursor.fetchone()
-
-    def _user_exists(self, user_id):
-        cursor = self._cursor()
-        stmt = "SELECT id FROM users WHERE id = ?"
-        cursor.execute(stmt, (user_id,))
-        return cursor.rowcount == 1
-
-    def _cursor(self):
-        return CRATE_CONNECTION().cursor()
-
+    def _update_pending_user_transaction_receiver(self, transaction):
+        transaction_id = transaction['id']
+        user_id = transaction['receiver']
+        return self.util.update_pending_user_transaction(transaction_id,
+                                                         user_id)
 
 def bad_request(msg=None):
     # TODO: 403

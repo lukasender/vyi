@@ -1,9 +1,9 @@
 from lovely.pyrest.rest import RestService, rpcmethod_route
 from lovely.pyrest.validation import validate
-from crate.client.exceptions import ProgrammingError
 
-from vyi.app.users.model import User
-from ..model import DB_SESSION, genid, refresher
+from vyi.app.model import CRATE_CONNECTION, genid, genuuid, refresher
+
+import time
 
 
 REGISTER_SCHEMA = {
@@ -27,40 +27,52 @@ class UserService(object):
         self.request = request
 
     @rpcmethod_route()
-    @refresher
     def list(self):
         """ List all registered users """
-        query = DB_SESSION.query(User).order_by(User.nickname)
-        users = query.all()
+        cursor = CRATE_CONNECTION().cursor()
+        users_stmt = "SELECT id, nickname FROM users ORDER BY nickname"
+        user_ta_stmt = "SELECT sum(amount) FROM user_transactions "\
+                       "WHERE user_id = ? AND state = ?"
+        cursor.execute("REFRESH TABLE users")
+        cursor.execute(users_stmt)
+        users = cursor.fetchall()
         result = []
         for user in users:
+            user_id = user[0]
+            nickname = user[1]
+            args = (user_id, "finished",)
+            cursor.execute("REFRESH TABLE user_transactions")
+            cursor.execute(user_ta_stmt, args)
+            balance = cursor.fetchone()[0]
             result.append({
-                "id": user.id,
-                "nickname": user.nickname,
-                "balance": user.balance
+                "id": user_id,
+                "nickname": nickname,
+                "balance": balance
             })
         return {"data": {"users": result}}
 
     @rpcmethod_route(route_suffix="/register", request_method="POST")
     @validate(REGISTER_SCHEMA)
     @refresher
-    def register(self, nickname, balance=None):
+    def register(self, nickname, balance=0):
         """ Register a new user """
-        user = User()
-        user.id = genid(nickname)
-        user.nickname = nickname
-        if balance:
-            try:
-                user.balance = float(balance)
-            except ValueError:
-                return {"status": "failed",
-                        "msg":"balance must be a number."}
-        try:
-            DB_SESSION.add(user)
-            return {"status": "success"}
-        except ProgrammingError:
-            # TODO: this does not seem to work... exception won't be catched.
+        cursor = CRATE_CONNECTION().cursor()
+        user_id = genid(nickname)
+        # add user
+        stmt = "INSERT INTO users (id, nickname) VALUES (?, ?)"
+        cursor.execute(stmt, (user_id, nickname,))
+        if cursor.rowcount != 1:
             return {"status": "failed"}
+        # initialise the user's transaction table
+        stmt = "INSERT INTO user_transactions "\
+               "(id, user_id, \"timestamp\", amount, transaction_id, state) "\
+               "VALUES (?,?,?,?,?,?)"
+        ta_id = genuuid()
+        args = (ta_id, user_id, time.time(), balance, "register", "finished",)
+        cursor.execute(stmt, args)
+        if cursor.rowcount != 1:
+            return {"status": "failed"}
+        return {"status": "success"}
 
 
 def includeme(config):
