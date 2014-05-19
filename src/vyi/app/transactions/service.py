@@ -5,7 +5,7 @@ from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 
 from ..model import genuuid, CRATE_CONNECTION
 
-from .service_util import TransactionUtil, MAX_RETRIES
+from .service_util import TransactionUtil
 
 import time
 
@@ -84,12 +84,13 @@ class TransactionsService(object):
 
     @rpcmethod_route(route_suffix="/process", request_method="POST")
     def process_transactions(self):
+        cursor = self.cursor
+        self.util.refresh("transactions")
         stmt = "SELECT id, sender, receiver, amount, type, state "\
                "FROM transactions WHERE state != ?"
-        self.cursor.execute(stmt, ("finished",))
-        transactions = self.cursor.fetchall()
+        cursor.execute(stmt, ("finished",))
+        transactions = cursor.fetchall()
         failed_transactions = []
-
         for t in transactions:
             transaction = {
                 'id': t[0],
@@ -160,8 +161,8 @@ class TransactionsService(object):
         # TODO
         # check if an other process is processing this transaction?
         user_transactions = self.util.get_user_transaction(transaction)
-        u_ta_sender = user_transactions['sender']
-        u_ta_receiver = user_transactions['receiver']
+        u_ta_sender = user_transactions.get('sender', None)
+        u_ta_receiver = user_transactions.get('receiver', None)
         if u_ta_sender is None:
             ok = self._update_balance_sender(transaction, 'pending')
             if not ok:

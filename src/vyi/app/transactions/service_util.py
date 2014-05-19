@@ -24,7 +24,7 @@ class TransactionUtil(object):
         stmt = "UPDATE transactions "\
                "SET state = ? WHERE id = ? AND _version = ? AND state = ?"
         self.cursor.execute(stmt, (state, transaction['id'], _version,
-                                          orig_state))
+                                   orig_state))
         return self.cursor.rowcount == 1
 
     def get_balance_for(self, user_id):
