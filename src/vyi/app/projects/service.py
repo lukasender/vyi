@@ -3,9 +3,7 @@ from lovely.pyrest.validation import validate
 
 from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 
-from vyi.users.model import User
-from vyi.projects.model import Project
-from ..model import DB_SESSION, CRATE_CONNECTION, refresher
+from vyi.app.model import CRATE_CONNECTION, refresher, genuuid
 
 import time
 
@@ -59,37 +57,64 @@ class ProjectService(object):
 
     def __init__(self, request):
         self.request = request
+        self.cursor = CRATE_CONNECTION().cursor()
+
+    def _create_project(self, project, user):
+        project_id = project[0]
+        name = project[2]
+        description = project[3]
+        up = project[4]['up']
+        down = project[4]['down']
+        proj = {
+            "id": project_id,
+            "name": name,
+            "initiator": user,
+            "votes": {
+                "up": up,
+                "down": down,
+                "sum": up - down
+            },
+            "description": description
+        }
+        return proj
 
     @rpcmethod_route()
     def list(self):
         """ List all projects """
-        queryProjects = DB_SESSION.query(Project).order_by(Project.name)
-        #queryVotes = DB_SESSION.query(Vote).order_by(Vote.id)
-        # TODO: improve this.. only fetch user_ids for [project.initiator_id]
-        queryUsers = DB_SESSION.query(User).order_by(User.id)
-        projects = queryProjects.all()
-        users = queryUsers.all()
+        cursor = self.cursor
+        projects_stmt = "SELECT id, initiator_id, name, description, votes "\
+                        "FROM projects ORDER BY name"
+        users_stmt = "SELECT id, nickname FROM users ORDER BY id"
+        cursor.execute(projects_stmt)
+        projects = cursor.fetchall()
+        cursor.execute(users_stmt)
+        users = cursor.fetchall()
         result = []
         def user(users, project):
             for u in users:
-                if u.id == project.initiator_id:
+                if u.id == project[1]:
                     return u
 
         for project in projects:
             u = user(users, project)
-            result.append(create_project(project, u))
+            p = self._create_project(project, u)
+            result.append(p)
         return {"data": {"projects": result}}
 
     @rpcmethod_route(route_suffix="/{project_id}")
     def list_project(self, project_id):
-        queryProject = DB_SESSION.query(Project).filter(
-                                  Project.id == project_id)
+        cursor = self.cursor
+        project_stmt = "SELECT id, initiator_id, name, description, "\
+                       "votes, balance "\
+                       "FROM projects WHERE id = ?"
+        user_stmt = "SELECT id, nickname FROM users WHERE id = ?"
+        cursor.execute(project_stmt, (project_id,))
         try:
-            project = queryProject.one()
-            queryUser = DB_SESSION.query(User).filter(
-                                   User.id == project.initiator_id)
-            user = queryUser.one()
-            return {"data": {"projects": [create_project(project, user)]}}
+            project = cursor.fetchone()
+            cursor.execute(user_stmt, (project[1],))
+            user = cursor.fetchone()
+            project_json = self._create_project(project, user[1])
+            return {"data": {"projects": [project_json]}}
         except (NoResultFound, MultipleResultsFound):
             return bad_request("not found")
 
@@ -98,18 +123,22 @@ class ProjectService(object):
     @refresher
     def add(self, name, initiator):
         """ add a new project """
-        query = DB_SESSION.query(User).filter(User.nickname == initiator)
+        cursor = self.cursor
+        stmt = "SELECT id FROM users WHERE nickname = ?"
+        cursor.execute(stmt, (initiator,))
         try:
-            user = query.one()
+            initiator_id = cursor.fetchone()[0]
         except (NoResultFound, MultipleResultsFound):
             return bad_request('failed for {0}'.format(initiator))
 
-        project = Project()
-        project.initiator_id = user.id
-        project.name = name
-        project.votes = {'up': 0, 'down': 0}
-        DB_SESSION.add(project)
-        return {"status":"success"}
+        stmt = "INSERT INTO projects (id, initiator_id, name, votes, balance) "\
+               "VALUES (?,?,?,?,?)"
+        votes = {'up': 0, 'down': 0}
+        args = (genuuid(), initiator_id, name, votes, 0,)
+        cursor.execute(stmt, args)
+        if cursor.rowcount == 1:
+            return {"status":"success"}
+        return {"status":"failed"}
 
     @rpcmethod_route(route_suffix="/vote_ec_1", request_method="POST")
     @validate(VOTE_SCHEMA)
@@ -210,23 +239,6 @@ class ProjectService(object):
                 (project_id, user_id, comment, timestamp)
             )
             return {"status": "success"}
-
-
-def create_project(project, user):
-    up = project.votes['up']
-    down = project.votes['down']
-    proj = {
-        "id": project.id,
-        "name": project.name,
-        "initiator": user.nickname,
-        "votes": {
-            "up": up,
-            "down": down,
-            "sum": up - down
-        },
-        "description": project.description
-    }
-    return proj
 
 
 def bad_request(msg=None):

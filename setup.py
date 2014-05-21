@@ -4,7 +4,7 @@ import re
 import ConfigParser
 from setuptools import setup, find_packages
 
-VERSIONFILE = open("vyi/__init__.py").read()
+VERSIONFILE = open("src/vyi/app/__init__.py").read()
 VERSION_REGEX = r'^__version__ = [\'"]([^\'"]*)[\'"]$'
 M = re.search(VERSION_REGEX, VERSIONFILE, re.M)
 if M:
@@ -74,11 +74,18 @@ setup(name='vyi',
       url='https://github.com/lumannnn/vyi',
       keywords='vyi validate your idea',
       license='apache license 2.0',
-      packages=find_packages(),
+      packages=find_packages('src'),
+      package_dir={'': 'src'},
       namespace_packages=['vyi'],
       include_package_data=True,
       extras_require=dict(
-          test=nailed_requires(TEST_REQUIRES),
+        test=nailed_requires([
+          'lovely.testlayers',
+          'mock>=1.0.1',
+          'zope.testing',
+          'webtest',
+          'zc.customdoctests>=1.0.1'
+        ]),
       ),
       zip_safe=False,
       install_requires=REQUIRES,
@@ -86,10 +93,10 @@ setup(name='vyi',
       test_suite="",
       entry_points={
           'paste.app_factory': [
-              'main=vyi.server:app_factory'
+              'main=vyi.app.server:app_factory'
           ],
           'paste.server_factory': [
-              'server=vyi.green:server_factory',
+              'server=vyi.app.green:server_factory',
           ],
           'console_scripts': [
               'app=pyramid.scripts.pserve:main',

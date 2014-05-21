@@ -9,7 +9,7 @@ from threading import Thread, Lock
 from Queue import Queue
 
 
-USERS = ["lumannnn", "luibär", "albert_einstein", "nikola_tesla"]
+USERS = ["elon_musk", "albert_einstein", "nikola_tesla", "lovelace"]
 
 vote_x_times = 50
 
