@@ -83,13 +83,16 @@ class TransactionsService(object):
             return bad_request("user balance insufficient.")
 
     @rpcmethod_route(route_suffix="/process", request_method="POST")
-    def process_transactions(self):
+    def process(self):
         cursor = self.cursor
         self.util.refresh("transactions")
         stmt = "SELECT id, sender, receiver, amount, type, state "\
                "FROM transactions WHERE state != ?"
         cursor.execute(stmt, ("finished",))
         transactions = cursor.fetchall()
+        return self._process_transactions(transactions)
+
+    def _process_transactions(self, transactions):
         failed_transactions = []
         for t in transactions:
             transaction = {
@@ -100,7 +103,7 @@ class TransactionsService(object):
                 'type': t[4],
                 'state': t[5]
             }
-            successful = self._process_transactions(transaction)
+            successful = self.__process_transactions(transaction)
             if not successful:
                 failed_transactions.append(transaction)
         return {
@@ -109,7 +112,7 @@ class TransactionsService(object):
             "failed_transactions": failed_transactions
         }
 
-    def _process_transactions(self, transaction):
+    def __process_transactions(self, transaction):
         def __get_process(state):
             if state == 'initial':
                 return self._process_transaction_initial
