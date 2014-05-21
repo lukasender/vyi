@@ -66,13 +66,16 @@ The local topology of the individual services looks as follows:
 +---------------+       +---------------+
 ```
 
-For debugging the Pyramid app can be started in the foreground. Take care to stop the apps in the supervisor controller, then run:
+For debugging the Pyramid app can be started in the foreground. Take care
+to stop the apps in the supervisor controller, then run:
 
 ``./bin/app``
 
-The crate servers are running on port 4200 and 4201 and the admin interface is reachable at [http://localhost:4200/admin](http://localhost:4200/admin).
+The crate servers are running on port 4200 and 4201 and the admin interface
+is reachable at [http://localhost:4200/admin](http://localhost:4200/admin).
 
-The status interface for the HAProxy is available at [http://localhost:9100/__haproxy_stats](http://localhost:9100/__haproxy_stats)
+The status interface for the HAProxy is available at
+[http://localhost:9100/__haproxy_stats](http://localhost:9100/__haproxy_stats)
 
 Setup crate database
 --------------------
@@ -81,7 +84,8 @@ To initialize a empty crate database run the command
 
 ``./bin/crate_setup``
 
-If the database has been setup already the script will raise an error but no data will get destroyed.
+If the database has been setup already the script will raise an error but
+no data will get destroyed.
 
 Clean up crate database
 -----------------------
@@ -91,3 +95,23 @@ To reset the crate database to it's initial state run the command
 ``bin/crate_cleanup``
 
 CAUTION: This command will delete all data!
+
+Test framework
+--------------
+
+Run the test framework with the command
+
+``./bin/test``
+
+The setup is done by ``src/vyi/testing/tests.py``. DocTests are located in
+``docs``.
+
+Documentation
+-------------
+
+Generate a documentation by running the command
+
+``./bin/sphinx``
+
+A html document will be generated and moved to ``out/html/``.
+
