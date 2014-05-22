@@ -25,13 +25,6 @@ TRANSACTIONS_SCHEMA = {
     }
 }
 
-STATE = [
-"initial",
-"in progress",
-"committed",
-"finished"
-]
-
 
 @RestService('transactions')
 class TransactionsService(object):
@@ -48,7 +41,7 @@ class TransactionsService(object):
     @rpcmethod_route(route_suffix="/u2p", request_method="POST")
     @validate(TRANSACTIONS_SCHEMA)
     def transaction_user_to_project(self, project_id):
-        pass
+        raise NotImplementedError()
 
     @rpcmethod_route(route_suffix="/u2u", request_method="POST")
     @validate(TRANSACTIONS_SCHEMA)
@@ -141,6 +134,7 @@ class TransactionsService(object):
         }
 
     def __process_transactions(self, transaction):
+        """ initial -> in progress -> committed -> finished """
         def __get_process(state):
             if state == 'initial':
                 return self._process_transaction_initial
@@ -158,27 +152,32 @@ class TransactionsService(object):
         Processes a transaction with the state 'initial'.
         """
         ok = self.util.set_transaction_state(transaction, 'in progress')
-        # TODO in progress by...
         if not ok:
+            print "tried to set_transaction_state to 'in progress', but failed"
             return False
         ok = self._update_balance_sender(transaction, 'pending')
         if not ok:
+            print "tried to _update_balance_sender, but failed"
             return False
-        # reset for second account
         ok = self._update_balance_receiver(transaction, 'pending')
         if not ok:
+            print "tried to _update_balance_receiver, but failed"
             return False
         ok = self.util.set_transaction_state(transaction, 'committed')
         if not ok:
+            print "tried to set_transaction_state to 'committed', but failed"
             return False
         ok = self._update_pending_user_transaction_sender(transaction)
         if not ok:
+            print "tried to _update_pending_user_transaction_sender, but failed"
             return False
         ok = self._update_pending_user_transaction_receiver(transaction)
         if not ok:
+            print "tried to _update_pending_user_transaction_receiver, but "\
+                  "failed"
             return False
-        # TODO, remove 'in progress by'
-        return self.util.set_transaction_state(transaction, 'finished')
+        return self.util.set_transaction_state(transaction, 'finished',
+                                               occ_safe=True)
 
     def _process_transaction_inprogress(self, transaction):
         """
@@ -189,9 +188,7 @@ class TransactionsService(object):
         nothing.
         If not, this process continues accordingly.
         """
-        # TODO
-        # check if an other process is processing this transaction?
-        user_transactions = self.util.get_user_transaction(transaction)
+        user_transactions = self.util.get_user_transactions(transaction)
         u_ta_sender = user_transactions.get('sender', None)
         u_ta_receiver = user_transactions.get('receiver', None)
         if u_ta_sender is None:
@@ -211,7 +208,8 @@ class TransactionsService(object):
         ok = self._update_pending_user_transaction_receiver(transaction)
         if not ok:
             return False
-        return self.util.set_transaction_state(transaction, "finished")
+        return self.util.set_transaction_state(transaction, 'finished',
+                                               occ_safe=True)
 
     def _process_transaction_committed(self, transaction):
         """
@@ -222,9 +220,7 @@ class TransactionsService(object):
         nothing.
         If not, this process continues accordingly.
         """
-        # TODO
-        # check if an other process is processing this transaction?
-        user_transactions = self.util.get_user_transaction(transaction)
+        user_transactions = self.util.get_user_transactions(transaction)
         u_ta_sender = user_transactions['sender']
         u_ta_receiver = user_transactions['receiver']
         if u_ta_sender['state'] == 'pending':
@@ -235,21 +231,22 @@ class TransactionsService(object):
             ok = self._update_pending_user_transaction_receiver(transaction)
             if not ok:
                 return False
-        return self.util.set_transaction_state(transaction, 'finished')
+        return self.util.set_transaction_state(transaction, 'finished',
+                                               occ_safe=True)
 
     def _process_critial_error(self, transaction):
         """
-        Mother of god! A critical error occurred. Only a human can now help...
+        Mother of god! A critical error occurred. Only a human can help now...
         """
-        # TODO
         # notify a human
-        pass
+        raise Error("Mother of god! A critical error occurred. "\
+                        "Only a human can help now...", transaction)
 
     def _update_balance_sender(self, transaction, state):
         ta_id = transaction['id']
         sender = transaction['sender']
         amount = -transaction['amount']
-        return self.util.update_user_balance(
+        return self.util.insert_user_balance(
             user_id=sender,
             transaction_id=ta_id,
             amount=amount,
@@ -260,7 +257,7 @@ class TransactionsService(object):
         ta_id = transaction['id']
         receiver = transaction['receiver']
         amount = transaction['amount']
-        return self.util.update_user_balance(
+        return self.util.insert_user_balance(
             user_id=receiver,
             transaction_id=ta_id,
             amount=amount,

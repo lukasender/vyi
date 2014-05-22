@@ -11,42 +11,53 @@ class TransactionUtil(object):
     def __init__(self, connection):
         self.cursor = connection.cursor()
 
-    def set_transaction_state(self, transaction, state):
+    def set_transaction_state(self, transaction, state, occ_safe=False):
         """
         Update the state of a given transaction.
         """
-        # refresh and get the actual value
-        self.refresh("transactions")
-        stmt = "SELECT _version, state FROM transactions WHERE id = ?"
-        self.cursor.execute(stmt, (transaction['id'],))
-        _version, orig_state = self.cursor.fetchone()
-        # update
-        stmt = "UPDATE transactions "\
-               "SET state = ? WHERE id = ? AND _version = ? AND state = ?"
-        self.cursor.execute(stmt, (state, transaction['id'], _version,
-                                   orig_state))
-        return self.cursor.rowcount == 1
+        tries = 1 if not occ_safe else MAX_RETRIES
+        successful = False
+        cursor = self.cursor
+        while not successful and tries > 0:
+            tries -= 1
+            # refresh and get the actual value
+            self.refresh("transactions")
+            stmt = "SELECT _version, state FROM transactions WHERE id = ?"
+            cursor.execute(stmt, (transaction['id'],))
+            _version, orig_state = cursor.fetchone()
+            if orig_state == state:
+                return True
+            # update
+            stmt = "UPDATE transactions "\
+                   "SET state = ? WHERE id = ? AND _version = ?"
+            cursor.execute(stmt, (state, transaction['id'], _version,))
+            if cursor.rowcount == 1:
+                successful = True
+        return successful
 
     def get_balance_for(self, user_id):
-        self.refresh("users")
+        cursor = self.cursor
         self.refresh("user_transactions")
         stmt = "SELECT sum(amount) "\
                "FROM user_transactions WHERE user_id = ? AND state = ?"
-        self.cursor.execute(stmt, (user_id, "finished",))
-        return self.cursor.fetchone()[0]
+        cursor.execute(stmt, (user_id, "finished",))
+        return cursor.fetchone()[0]
 
-    def update_user_balance(self, user_id, transaction_id, amount, state):
+    def insert_user_balance(self, user_id, transaction_id, amount, state):
+        cursor = self.cursor
         try:
             stmt = "INSERT INTO user_transactions (id, user_id, "\
                    "\"timestamp\", amount, transaction_id, state) "\
                    "VALUES (?,?,?,?,?,?)"
             args = (genuuid(), user_id, time.time(), amount,
                     transaction_id, state,)
-            self.cursor.execute(stmt, args)
-            return self.cursor.rowcount == 1
+            cursor.execute(stmt, args)
+            return True
         except ProgrammingError, e:
-            print e
-            return False
+            assert e.message.endswith('exists already]')
+            # Reduce concurrency effects. It is safe to assume that the
+            # user_transaction is updated already.
+            return True
 
     def update_pending_user_transaction(self, transaction_id, user_id):
         cursor = self.cursor
@@ -61,7 +72,7 @@ class TransactionUtil(object):
     def user_balance_sufficient(self, sender, amount):
         return self.get_balance_for(sender) >= amount
 
-    def get_user_transaction(self, transaction):
+    def get_user_transactions(self, transaction):
         cursor = self.cursor
         transaction_id = transaction['id']
         sender = transaction['sender']
@@ -94,9 +105,10 @@ class TransactionUtil(object):
         return result
 
     def user_exists(self, user_id):
+        cursor = self.cursor
         stmt = "SELECT id FROM users WHERE id = ?"
-        self.cursor.execute(stmt, (user_id,))
-        return self.cursor.rowcount == 1
+        cursor.execute(stmt, (user_id,))
+        return cursor.rowcount == 1
 
     def refresh(self, table):
         self.cursor.execute("REFRESH TABLE {0}".format(table))
