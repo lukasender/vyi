@@ -1,0 +1,212 @@
+.. highlight:: python
+
+.. _main_introduction:
+
+============
+Introduction
+============
+
+The application 'validate your idea' serves as a showcase. The showcase
+demonstrates how one can develop an application using the `eventually
+consistent` data base `Crate Data`_. Crate Data does not provide a
+transaction system such as locking, but offers what is called multi-version
+concurrency control (`MVCC`_). Therefore, different techniques must be
+used to achieve data consistency. Especially in modern applications where
+many simultaneous requests are being made.
+
+Different use cases are implemented which demonstrate the principles on how
+to achieve data consistency. Data consistency is achieved not only by
+programming in a certain way, but also by how data is structured.
+
+The application 'validate your idea' is a fairly small one but some of
+functionalities can also be found in modern web communities such as
+`Kickstarter`_ or `Amazon`_. In 'validate your idea' users can add and share
+project ideas. Other users can then vote for an idea.
+
+The following example shall illustrate the `eventual consistency
+phenomenons`. The first example is a simple 'voting system' and serves as
+an introduction. A user can vote `up` or `down` for a project to express if
+she likes the idea or not. The total amount of up or down votes shall serve
+as an indicator of a good project idea and their potential of success.
+Users also have the possibilities to fund `successful` ideas. A transaction
+system is required where users can transfer balance to another users
+account. As a second, more sophisticated example, a two phase commit (2PC)
+is implemented to transfer the balance safely.
+
+.. _app_setup:
+
+Application setup
+=================
+
+Even though this application serves as a showcase, a production alike setup
+was one of the main goals. In my opinion, a showcase like such as this one
+is not too helpful when safe conditions prevail. Therefore, the application
+consists of several parts.
+
+The application being a web application, HTTP requests need to be handled
+and processed. A load balancer (`HAProxy`_) distributes the requests to one
+of the `application nodes`. A `application node` is a single
+`Lovely.PyRest`_ application. A `Crate Data`_ database cluster operating
+two Crate Data nodes is used as the persistent layer.
+
+Crate Data is a :ref:`def_shared_nothing` data base. It was therefore tried
+to achieve similar `shared nothing` properties for the whole application.
+Each application node does not require to share any common properties
+amongst other application nodes.
+
+Though, there is one `caveat`: as of now, there is no `production`
+configuration, only a `development` configuration. The configuration is
+split into different parts and can be found in the ``./etc/*.in`` files.
+For simplicity, the development setup is meant to be run on a single
+machine not requiring any setup including several different virtual
+machines. The development setup needs to configure the connection ports for
+the application nodes and the Crate Data nodes. The ports can be configured
+via ``[ports]`` section in the ``./buildout.cfg``. In contrast to the
+development setup, a production setup would most probably run each
+application node and Crate Data node on a single machine.
+
+Transaction system in a shared nothing, eventually consistent environment
+=========================================================================
+
+Typically, nowadays applications sport many nodes to cope with the amount
+of requests. The nodes form a cluster. Ideally, such a cluster is elastic
+and able to scale as the number of users grows. For easy scaling, it should
+be possible to add nodes to (or remove from) the cluster at any time
+without any further configuration required to be done. Such capabilities
+are best achieved in a :ref:`def_shared_nothing` environment.
+
+As well fitted a shared nothing environment may be for scaling, new
+obstacles need to be overcome. A transaction system often relies on a
+transaction manager. The transaction manager is ideally a single instance
+which contradicts the idea of a shared nothing architecture.
+
+The presented transaction system utilises a two phase commit (`2PC`_) and
+no centralised transaction manager is used. This is be achieved by
+carefully choosing a data model which eliminates concurrency phenomenons.
+Because of the data model the database itself is used as a `transaction
+log` and every step of the transaction can be tracked and reproduced (or
+reversed if is desired).
+
+.. _definitions:
+
+Definitions
+===========
+
+The following section defines some major terms and topics. It is not at
+all a full list of definitions and it is not intended to be one. But we
+need to find a consensus on some of the definitions which are used
+throughout the documentation.
+
+.. _def_eventual_consistency:
+
+Eventual consistency
+--------------------
+
+Eventual consistency is a form of `weak consistency`.
+
+In an ideal world there would be one type of consistency. That is, when
+data is updated all other replications or observers would see that update.
+This is what the C in `CAP`_ (consistency, availability, partition
+tolerance) describes. In a distributed environment this would require that
+a set of data is changed by only one operation at any given time. But
+different database systems offer different kinds of consistency and in
+`ACID`_-based (atomicity, consistency, isolation, durability) databases
+this is the responsibility of the application developers. Most ACID-based
+databases do offer help for application developers with transactions.
+Transactions can be checked against constraints to further more enhance
+consistency. Another important point of ACID transactions is the locking
+mechanism. While performing an operation on a data set, the locking
+mechanism can be used to prevent other operations from changing the same
+data set.
+
+Eventual consistency describes a different form of consistency. The general
+proposition is that if no new write operations are being performed, all
+database nodes eventually return the same and latest data. As well as ACID
+databases, eventual consistency databases need a mechanism to help
+developers achieve data consistency. Crate Data offers `MVCC`_.
+
+.. _def_shared_nothing:
+
+Shared nothing
+--------------
+
+A shared nothing environment tries to avoid a single centralised service of
+the system. Any node of a cluster is like any other node. No additional
+configuration needs to be done when add a node to a cluster.
+
+For further information or if this is an entirely new topic, please read
+the Wikipedia article `Shared nothing architecture`_ as a start.
+
+.. _def_append_only:
+
+Append-only
+-----------
+
+`Append-only` describes a technique to model data structures. Data does not
+get update. New data gets appended to existing data only.
+
+The following example describes the concept quite good. Imagine a counter
+needs to be implemented which gets updated very frequent and in parallel.
+Usually, increasing a value by one is a rather simple task. Many
+programming languages also offer a syntax which fits perfectly for such a
+task, e.g. ``counter = counter + 1``, ``counter += 1``, or ``counter++``.
+As simple as it looks, there are several different steps which need to be
+considered:
+
+1. Read the current value of the counter.
+
+2. Increase the value by 1.
+
+3. Store the updated value.
+
+If the counter gets increased concurrently without using a locking
+mechanism, a concurrent operation could possible read an already outdated
+value and such write a wrong value.
+
+Let the counter value be 9:
+
+1. operation 1 reads the counter (op1.counter: 9).
+
+2. slightly later, operation 2 reads the counter as well (op2.counter: 9).
+
+3. operation 1 increases the counter (op1.counter: 10).
+
+4. operation 2 increases the counter (op2.counter: 10).
+
+5. operation 1 writes the new value (op1.counter: 10).
+
+6. operation 2 writes the new, wrong value (op2.counter: 10) without
+   recognizing the counter value is already 10. As a result, the counter
+   value is missing one increment.
+
+A locking mechanism could solve this problem (e.g. a second operation is
+not allowed to read the counter until operation 1 is finished) but hinders
+other operations to continue its work.
+
+With 'append-only' data gets model in such a way that new data can be
+appended rather than updating existing data.
+
+The counter example could be modelled as a `counting list`. Each time the
+counter gets increased, the value '1' is inserted into the end of list. The
+sum of the elements in the of the list represent the counter value.
+Appending to a list is a lot easier to do concurrently.
+
+.. _`MVCC`: http://en.wikipedia.org/wiki/Multiversion_concurrency_control
+
+.. _`Crate Data`: https://crate.io/
+
+.. _`Kickstarter`: http://kickstarter.com/
+
+.. _`Amazon`: http://www.amazon.com/
+
+.. _`HAProxy`: http://haproxy.1wt.eu/
+
+.. _`2PC`: http://en.wikipedia.org/wiki/Two-phase_commit_protocol
+
+.. _`Lovely.PyRest`: https://pypi.python.org/pypi/lovely.pyrest
+
+.. _`Shared nothing architecture`: http://en.wikipedia.org/wiki/Shared_nothing_architecture
+
+.. _`CAP`: http://en.wikipedia.org/wiki/CAP_theorem
+
+.. _`ACID`: http://en.wikipedia.org/wiki/ACID

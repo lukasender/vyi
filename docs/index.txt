@@ -6,6 +6,9 @@ Contents
 ========
 
 .. toctree::
-   :maxdepth: 4
+   :maxdepth: 3
 
+   introduction.txt
+   voting.txt
    transactions.txt
+   u2u_transactions.txt

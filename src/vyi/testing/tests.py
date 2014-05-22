@@ -97,4 +97,13 @@ def test_suite():
     s.layer = crate_layer
     suite.addTest(s)
 
+    s = doctest.DocFileSuite(
+        '../../../docs/voting.txt',
+        setUp=setUpVyiTransactions,
+        tearDown=tearDownVyiTransactions,
+        optionflags=doctest.NORMALIZE_WHITESPACE | doctest.ELLIPSIS
+    )
+    s.layer = crate_layer
+    suite.addTest(s)
+
     return suite
