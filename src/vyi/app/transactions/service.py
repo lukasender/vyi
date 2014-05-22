@@ -36,7 +36,27 @@ class TransactionsService(object):
 
     @rpcmethod_route()
     def transactions(self):
-        pass
+        cursor = self.cursor
+        stmt = "SELECT id, sender, receiver, amount, "\
+                      "timestamp, type, state "\
+               "FROM transactions "\
+               "ORDER BY timestamp"
+        cursor.execute(stmt)
+        transactions = cursor.fetchall()
+        result = []
+        for transaction in transactions:
+            t = {
+                'id': transaction[0],
+                'sender': transaction[1],
+                'receiver': transaction[2],
+                'amount': transaction[3],
+                'timestamp': transaction[4],
+                'type': transaction[5],
+                'state': transaction[6]
+            }
+            result.append(t)
+        return {"status": "success", "data": result}
+
 
     @rpcmethod_route(route_suffix="/u2p", request_method="POST")
     @validate(TRANSACTIONS_SCHEMA)
