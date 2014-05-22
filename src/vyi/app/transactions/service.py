@@ -53,34 +53,62 @@ class TransactionsService(object):
     @rpcmethod_route(route_suffix="/u2u", request_method="POST")
     @validate(TRANSACTIONS_SCHEMA)
     def transaction_user_to_user(self, sender, receiver, amount):
+        try:
+            self._transaction_user_to_user(sender, receiver, amount)
+            return {"status": "success"}
+        except Error, e:
+            return bad_request(e.msg)
+
+    @rpcmethod_route(route_suffix="/u2u_immediate", request_method="POST")
+    @validate(TRANSACTIONS_SCHEMA)
+    def transaction_user_to_user_immediate(self, sender, receiver, amount):
+        try:
+            transaction = self._transaction_user_to_user(sender, receiver,
+                                                         amount)
+            if self._process_transactions([transaction]):
+                return {"status": "success"}
+        except Error, e:
+            return bad_request(e.msg)
+
+    def _transaction_user_to_user(self, sender, receiver, amount):
         if amount <= 0:
-            return bad_request("'amount' must be a number > 0.")
+            raise Error("'amount' must be a number > 0.")
         self.util.refresh("users")
         if not self.util.user_exists(sender):
-            return bad_request("unknown 'sender'")
+            raise Error("unknown 'sender'")
         if not self.util.user_exists(receiver):
-            return bad_request("unknown 'receiver'")
+            raise Error("unknown 'receiver'")
+        cursor = self.cursor
+        if not self.util.user_balance_sufficient(sender, amount):
+            raise Error("sender balance is insufficient")
+        stmt = "INSERT INTO transactions "\
+               "(id,\"timestamp\",sender,receiver,amount,type,state) "\
+               "VALUES (?, ?, ?, ? ,?, ?, ?)"
+        transaction_id = genuuid()
+        args = (
+            transaction_id,
+            time.time(),
+            sender,
+            receiver,
+            amount,
+            'u2u',
+            'initial',
+        )
         try:
-            self.util.user_balance_sufficient(sender, amount)
-            stmt = "INSERT INTO transactions "\
-                   "(id,\"timestamp\",sender,receiver,amount,type,state) "\
-                   "VALUES (?, ?, ?, ? ,?, ?, ?)"
-            transaction_id = genuuid()
-            args = (
+            cursor.execute(stmt, args)
+            if cursor.rowcount != 1:
+                raise Error("could not add the new transaction.")
+            transaction = [
                 transaction_id,
-                time.time(),
                 sender,
                 receiver,
                 amount,
-                "u2u",
-                "initial",
-            )
-            self.cursor.execute(stmt, args)
-            if self.cursor.rowcount == 1:
-                return {"status":"success"}
-            return bad_request("could not add the new transaction.")
+                'u2u',
+                'initial'
+            ]
+            return transaction
         except (NoResultFound, MultipleResultsFound):
-            return bad_request("user balance insufficient.")
+            raise Error("user balance insufficient.")
 
     @rpcmethod_route(route_suffix="/process", request_method="POST")
     def process(self):
@@ -257,6 +285,13 @@ def bad_request(msg=None):
     if msg:
         br['msg'] = msg
     return br
+
+
+class Error(Exception):
+
+    def __init__(self, msg=None):
+        super(Error, self).__init__()
+        self.msg = msg
 
 
 def includeme(config):
