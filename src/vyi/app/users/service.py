@@ -24,26 +24,35 @@ REGISTER_SCHEMA = {
 class UserService(object):
 
     def __init__(self, request):
+        self.cursor = CRATE_CONNECTION().cursor()
         self.request = request
 
     @rpcmethod_route()
     def list(self):
         """ List all registered users """
-        cursor = CRATE_CONNECTION().cursor()
+        # Performs an application side JOIN to check if both parts
+        # ('transactions', 'user_transaction')of a transaction is
+        # 'finished' . The join can be described as  follows:
+        # SELECT ...
+        # FROM user_transcation AS ut
+        # JOIN transactions AS t ON t.id = ut.transaction_id
+        # WHERE t.state = 'finished' AND ut.state = 'finished'
+        cursor = self.cursor
         users_stmt = "SELECT id, nickname FROM users ORDER BY nickname"
-        user_ta_stmt = "SELECT sum(amount) FROM user_transactions "\
+        user_ta_stmt = "SELECT transaction_id, amount FROM user_transactions "\
                        "WHERE user_id = ? AND state = ?"
         cursor.execute("REFRESH TABLE users")
+        cursor.execute("REFRESH TABLE user_transactions")
+        cursor.execute("REFRESH TABLE transactions")
         cursor.execute(users_stmt)
         users = cursor.fetchall()
         result = []
         for user in users:
             user_id = user[0]
             nickname = user[1]
-            args = (user_id, "finished",)
-            cursor.execute("REFRESH TABLE user_transactions")
-            cursor.execute(user_ta_stmt, args)
-            balance = cursor.fetchone()[0]
+            cursor.execute(user_ta_stmt, (user_id, u'finished',))
+            user_transactions = cursor.fetchall()
+            balance = self._calculate_balance(user_transactions)
             result.append({
                 "id": user_id,
                 "nickname": nickname,
@@ -51,12 +60,27 @@ class UserService(object):
             })
         return {"data": {"users": result}}
 
+    def _calculate_balance(self, user_transactions):
+        cursor = self.cursor
+        balance = 0
+        stmt = "SELECT id FROM transactions "\
+               "WHERE id IN ({0})"
+        ut_ids = [u[0] for u in user_transactions]
+        place_holders = ['?' for _ in xrange(len(ut_ids))]
+        stmt = stmt.format(', '.join(place_holders))
+        cursor.execute(stmt, ut_ids)
+        transactions = cursor.fetchall()
+        for user_id, amount in user_transactions:
+            if [user_id] in transactions or user_id == u'register':
+                balance += amount
+        return balance
+
     @rpcmethod_route(route_suffix="/register", request_method="POST")
     @validate(REGISTER_SCHEMA)
     @refresher
     def register(self, nickname, balance=0):
         """ Register a new user """
-        cursor = CRATE_CONNECTION().cursor()
+        cursor = self.cursor
         user_id = genid(nickname)
         # add user
         stmt = "INSERT INTO users (id, nickname) VALUES (?, ?)"
