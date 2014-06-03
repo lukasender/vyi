@@ -1,6 +1,6 @@
-create table comments (
+CREATE TABLE comments (
     project_id string,
     user_id string,
     comment string,
     "timestamp" timestamp
-) clustered by (user_id) with (refresh_interval=2500)
+) CLUSTERED BY (user_id) WITH (refresh_interval=2500)

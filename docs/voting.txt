@@ -1,0 +1,247 @@
+=============
+Voting system
+=============
+
+Introduction
+============
+
+The voting system of 'validate your idea' serves as a rough and quick
+introduction to the topic 'how to develop an application in an `eventually
+consistent` environment'. The reader is introduced into the problems which
+one faces in such an environment and how to solve those problems.
+
+As briefly explained in :ref:`def_eventual_consistency`, the general
+proposition is that if no new write operations are being performed, all
+database nodes eventually return the same and latest data. This implies,
+that if one operation reads data, it is not guaranteed, that the yielded
+data is the latest data. If, for instance, an application offers a
+functionality which reads old data, alters that data set and writes
+(overwrites) the outdated data, data inconsistency can occur. Especially if
+the functionality is used by many users concurrently.
+
+`Crate Data`_ offers `MVCC`_ to offer a mechanism to check the `freshness`
+of the data. Every data record gets a special field `_version` which is a
+single number. Every time a data record is updated, the `_version` is
+increased by one. One can use this version to achieve data consistency. How
+to do this is explained later in the chapter :ref:`data_consistency_mvcc`.
+
+Another technique to achieve data consistency is to use the
+:ref:`def_append_only` technique. How to user this technique is explained
+later in the chapter :ref:`data_consistency_append_only`.
+
+.. _data_consistency_mvcc:
+
+Data consistency using MVCC
+===========================
+
+In Crate Data, MVCC is offered to be able to control concurrency. Each data
+record (in Crate Data called a `document`) has a field `_version`. The
+version is a single number and gets increased with every document update.
+
+.. _data_consistency_mvcc_by_example:
+
+MVCC by example
+---------------
+
+The following example illustrates how a version of a document gets updated.
+
+First, establish a connection with the Crate Data cluster::
+
+    >>> from crate.client import connect
+    >>> connection = connect(crate_host)
+    >>> cursor = connection.cursor()
+
+Create a new table::
+
+    >>> stmt = "CREATE TABLE mvcc_showcase (id int, content string)"
+    >>> cursor.execute(stmt)
+
+Insert an example document::
+
+    >>> stmt = "INSERT INTO mvcc_showcase (id, content) VALUES (?, ?)"
+    >>> cursor.execute(stmt, (1, 'some content',))
+
+Select the document including the _version::
+
+    >>> cursor.execute("REFRESH TABLE mvcc_showcase")
+    >>> stmt = "SELECT _version, id, content FROM mvcc_showcase"
+    >>> cursor.execute(stmt)
+    >>> cursor.fetchone()
+    [1, 1, u'some content']
+
+.. note::
+
+    Note the ``REFRESH TABLE`` command. This is another feature Crate Data
+    offers to help improve data consistency. "The REFRESH TABLE command
+    refreshes a table and all its rows, making all changes made to that
+    table available to all further commands." (`REFRESH TABLE`_)
+
+Update the example data::
+
+    >>> stmt = "UPDATE mvcc_showcase SET content = ? WHERE id = ?"
+    >>> cursor.execute(stmt, ('updated content', 1,))
+
+Again, select the example data including the _version::
+
+    >>> cursor.execute("REFRESH TABLE mvcc_showcase")
+    >>> stmt = "SELECT _version, id, content FROM mvcc_showcase"
+    >>> cursor.execute(stmt)
+    >>> cursor.fetchone()
+    [2, 1, u'updated content']
+
+Update the example data once again, but do not change any data (compare with
+the first update)::
+
+    >>> stmt = "UPDATE mvcc_showcase SET content = ? WHERE id = ?"
+    >>> cursor.execute(stmt, ('updated content', 1,))
+
+Again, select the example data including the _version. Note that the version
+is increased nevertheless, even though no data has been updated::
+
+    >>> cursor.execute("REFRESH TABLE mvcc_showcase")
+    >>> stmt = "SELECT _version, id, content FROM mvcc_showcase"
+    >>> cursor.execute(stmt)
+    >>> cursor.fetchone()
+    [3, 1, u'updated content']
+
+.. _data_consistency_using_mvcc:
+
+Using MVCC to update data consistently
+--------------------------------------
+
+With the understanding of how MVCC works in Crate Data, one now can use the
+the `_version` to update data consistently. The general proposal is to
+update a document only if the document's version is the latest version.
+This can be expressed as an algorithm. The algorithm is rather simple but
+effective and can described as follows:
+
+Fetch the current version of a document which needs to be updated.
+Include the version in the UPDATE statement and compare the fetched version
+with the latest version of the document. The following flow chart explains
+the different steps which needs to be made:
+
+.. _picture 1:
+
+.. image:: images/update_mvcc_safe.png
+    :width: 300px
+    :height: 600px
+    :alt: basic algorithm using MVCC to achieve data consistency
+    :align: center
+
+`Picture 1 - basic algorithm using MVCC to achieve data consistency`
+
+If, and only if there is no conflict (meaning, the fetched version is the
+latest version of the document) the document gets updated.
+
+.. note::
+
+    The loop (including the loop counter and the variable try`) is
+    optional. It can be used if one does not need to check why there was a
+    data inconsistency and try the whole process once again. Including a
+    loop counter is generally a good idea to avoid possible infinite loops.
+
+.. _data_consistency_using_mvcc_voting_system:
+
+Using MVCC to implement the 'voting system'
+-------------------------------------------
+
+Once the principles of '`MVCC`_' and 'how one can use MVCC'
+(:ref:`data_consistency_mvcc_by_example`, and
+:ref:`data_consistency_using_mvcc`) are understood, implementing a simple
+voting systems is simple.
+
+As described in the :ref:`main_introduction`, 'validate your idea' lets
+users share their project ideas and other users can vote for a project
+idea.
+
+.. _project_mapping:
+
+The following mapping describes a project:
+
+.. literalinclude:: ../etc/mappings/projects.sql
+    :language: psql
+    :linenos:
+
+The algorithm used to update the votes consistently is the same as
+illustrated in `picture 1`_. The following code listing is the actual
+implementation of the voting system using MVCC.
+
+.. literalinclude:: ../src/vyi/app/projects/service.py
+    :language: python
+    :lines: 143-203
+    :linenos:
+
+The latest voting statistics are stored in the project its document. To
+fetch the latest voting statistics, one only needs to fetch the according
+document, e.g.:
+
+.. code-block:: psql
+
+    SELECT id, name, votes
+    FROM projects
+    WHERE project_id = 'someId'
+
+
+.. _data_consistency_append_only:
+
+Data consistency using `append-only`
+====================================
+
+Using MVCC is great and works as expected but may not always be necessary.
+Especially today, where data storage is cheap and large data sets are not
+as problematic as they once were. Using a slightly different data model can
+simplify the process to guarantee data consistency.
+
+:ref:`data_consistency_using_mvcc_voting_system` shows how to achieve data
+consistency using MVCC and updating an existing document with each vote. To
+achieve data consistency, one needs to do at least three steps:
+
+1. fetch the latest data (which includes an execution of the REFRESH
+   command beforehand.)
+
+2. update the existing data
+
+3. write it back to the data store.
+
+4. (optional: if not successful, go to step 1.)
+
+For a task as simple as a voting system, one could use the
+:ref:`def_append_only` technique. Applying this technique using the Crate Data
+store essentially means: insert a new document for each vote. Therefore, a
+new table needs to be created serving as `counting list`.
+
+.. literalinclude:: ../etc/mappings/votes.sql
+    :language: psql
+    :linenos:
+
+The algorithm used to update the votes consistently is now very easy. The
+following code listing is the actual implementation of the voting system
+using `append-only`.
+
+.. literalinclude:: ../src/vyi/app/projects/service.py
+    :language: python
+    :lines: 205-242
+    :linenos:
+
+If one compares the two methods, it is not only shorter but also easier.
+Additionally, it is safe to say, there will be no data inconsistency
+because new votes are only inserted into the table (i.e. appended to a
+list).
+
+The voting statistics are stored as many single documents and a little
+extra work needs to be done. To fetch the latest voting statistics, one
+needs to sum all of the votes, e.g.:
+
+.. code-block:: psql
+
+    SELECT sum(down), sum(up)
+    FROM votes
+    WHERE project_id = 'someId'
+    GROUP BY project_id
+
+
+.. _`Crate Data`: https://crate.io/
+
+.. _`MVCC`: http://en.wikipedia.org/wiki/Multiversion_concurrency_control
+
+.. _`REFRESH TABLE`: https://crate.io/docs/stable/sql/reference/refresh.html

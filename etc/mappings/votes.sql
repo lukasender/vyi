@@ -1,5 +1,5 @@
-create table votes (
+CREATE TABLE votes (
     project_id string,
     up int,
     down int
-) clustered by (project_id)
+) CLUSTERED BY (project_id)

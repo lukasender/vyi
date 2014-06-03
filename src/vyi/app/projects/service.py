@@ -92,7 +92,7 @@ class ProjectService(object):
         result = []
         def user(users, project):
             for u in users:
-                if u.id == project[1]:
+                if u[0] == project[1]:
                     return u
 
         for project in projects:
@@ -143,36 +143,53 @@ class ProjectService(object):
     @rpcmethod_route(route_suffix="/vote_ec_1", request_method="POST")
     @validate(VOTE_SCHEMA)
     def vote_ec_1(self, vote, project_id, task_id=None):
+        """
+        Update a projects' voting according to given 'vote'.
+
+        Keyword arguments:
+        vote: can either be 'up' or 'down'.
+        project_id: the project which is voted for.
+        task_id: an optional id which is used by external workers to track
+                 the concurrent execution of this endpoint.
+        """
         successful = False
         max_retries = retries = 5
         while not successful and retries > 0:
             current_retries = max_retries - retries + 1
-            cursor = CRATE_CONNECTION().cursor()
+            cursor = self.cursor
             cursor.execute("REFRESH TABLE projects")
-            cursor.execute("SELECT _version, projects.id, projects.votes " \
-                           "FROM projects WHERE projects.id = ?", (project_id,))
-            _version, proj_id, votes = cursor.fetchone()
-            print "[task_id: {task_id}]: _version: {ver}, proj_id: "\
+            try:
+                stmt = "SELECT _version, projects.id, projects.votes " \
+                       "FROM projects WHERE projects.id = ?"
+                cursor.execute(stmt, (project_id,))
+                _version, proj_id, votes = cursor.fetchone()
+            except (NoResultFound, MultipleResultsFound):
+                return bad_request("unknown project")
+            else:
+                print "[task_id: {task_id}]: _version: {ver}, proj_id: "\
                   "{p_id}, votes: {votes}, tries: {tries}".format(
-                task_id=task_id,
-                ver=_version,
-                p_id=proj_id,
-                votes=votes,
-                tries=current_retries
-            )
-            new_vote = votes['up'] + 1 if vote == "up" else votes['down'] + 1
-            upd_stmt = "UPDATE projects " \
-                       "SET projects.votes['{0}'] = ? " \
-                       "WHERE _version = ? AND projects.id = ?"
-            if vote == "up":
-                upd_stmt = upd_stmt.format('up')
-            else:
-                upd_stmt = upd_stmt.format('down')
-            cursor.execute(upd_stmt, (new_vote, _version, proj_id,))
-            if cursor.rowcount == 1:
-                successful = True
-            else:
-                retries -= 1
+                    task_id=task_id,
+                    ver=_version,
+                    p_id=proj_id,
+                    votes=votes,
+                    tries=current_retries
+                )
+                if vote == "up":
+                    new_vote = votes['up'] + 1
+                else:
+                    new_vote = votes['down'] + 1
+                upd_stmt = "UPDATE projects " \
+                           "SET projects.votes['{0}'] = ? " \
+                           "WHERE _version = ? AND projects.id = ?"
+                if vote == "up":
+                    upd_stmt = upd_stmt.format('up')
+                else:
+                    upd_stmt = upd_stmt.format('down')
+                cursor.execute(upd_stmt, (new_vote, _version, proj_id,))
+                if cursor.rowcount == 1:
+                    successful = True
+                else:
+                    retries -= 1
 
         if successful:
             return {
@@ -188,32 +205,41 @@ class ProjectService(object):
     @rpcmethod_route(route_suffix="/vote_ec_2", request_method="POST")
     @validate(VOTE_SCHEMA)
     def vote_ec_2(self, vote, project_id, task_id=None):
-        cursor = CRATE_CONNECTION().cursor()
+        """
+        Update a projects' voting according to given 'vote'.
+
+        Keyword arguments:
+        vote: can either be 'up' or 'down'.
+        project_id: the project which is voted for.
+        task_id: an optional id which is used by external workers to track
+                 the concurrent execution of this endpoint.
+        """
+        cursor = self.cursor
         cursor.execute("REFRESH TABLE projects")
-        cursor.execute("SELECT projects.id " \
-                       "FROM projects WHERE projects.id = ?", (project_id,))
-        proj_id = cursor.fetchone()
-        if not proj_id:
+        try:
+            stmt = "SELECT projects.id " \
+                   "FROM projects "\
+                   "WHERE projects.id = ?"
+            cursor.execute(stmt, (project_id,))
+            proj_id = cursor.fetchone()
+        except (NoResultFound, MultipleResultsFound):
             return bad_request("unknown project")
         else:
             print "[task_id: {task_id}]: proj_id: {p_id}".format(
                 task_id=task_id,
                 p_id=proj_id
             )
-            stmt = "INSERT INTO votes " \
-                   "(project_id, up, down) " \
-                   "VALUES (?, ?, ?)"
-            print stmt
+            stmt = "INSERT INTO votes (project_id, up, down) VALUES (?, ?, ?)"
             up = down = 0
             if vote == "up":
                 up = 1
             else:
                 down = 1
-            cursor.execute(
-                stmt,
-                (project_id, up, down)
-            )
-            return {"status": "success"}
+            cursor.execute(stmt, (project_id, up, down))
+            return {
+                "status": "success",
+                "msg":"[task_id {0}] successful".format(task_id)
+            }
 
     @rpcmethod_route(route_suffix="/comment", request_method="POST")
     @validate(COMMENT_SCHEMA)

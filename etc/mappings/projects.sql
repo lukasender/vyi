@@ -1,9 +1,9 @@
-create table projects (
-    id string primary key,
-    initiator_id string primary key,
+CREATE TABLE projects (
+    id string PRIMARY KEY,
+    initiator_id string PRIMARY KEY,
     name string,
     description string,
-    votes object as (
+    votes object AS (
         up int,
         down int
     ),
