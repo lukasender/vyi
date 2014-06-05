@@ -1,7 +1,7 @@
 CREATE TABLE transactions (
     id string PRIMARY KEY,
     sender string PRIMARY KEY,
-    receiver string,
+    recipient string,
     amount double,
     type string,
     state string,

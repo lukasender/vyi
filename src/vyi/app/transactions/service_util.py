@@ -101,7 +101,7 @@ class TransactionUtil(object):
             if u_ta_dict['user_id'] == sender:
                 result['sender'] = u_ta_dict
             else:
-                result['receiver'] = u_ta_dict
+                result['recipient'] = u_ta_dict
         return result
 
     def user_exists(self, user_id):

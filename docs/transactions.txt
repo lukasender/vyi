@@ -44,13 +44,13 @@ The different states of a transaction
 The user 'elon_musk' wants to transfer 100 of his balance to
 'nikola_tesla'.
 
-+-------------------------------------------------------------+
-| transactions                                                |
-+----+--------+----------+--------+-----------+---------------+
-| id | sender | receiver | amount | state     | timestamp     |
-+====+========+==========+========+===========+===============+
-| 42 | 1      | 2        | 100    | "initial" | 1400855185396 |
-+----+--------+----------+--------+-----------+---------------+
++--------------------------------------------------------------+
+| transactions                                                 |
++----+--------+-----------+--------+-----------+---------------+
+| id | sender | recipient | amount | state     | timestamp     |
++====+========+===========+========+===========+===============+
+| 42 | 1      | 2         | 100    | "initial" | 1400855185396 |
++----+--------+-----------+--------+-----------+---------------+
 
 The transaction is recorded in the system. The first phase of the 2PC is
 done. A user can be sure that the transaction is getting processed
@@ -68,13 +68,13 @@ eventually.
 
 The second phase of the 2PC starts. The transaction is marked as "in progress".
 
-+-------------------------------------------------------------------+
-| transactions                                                      |
-+----+--------+----------+--------+-----------------+---------------+
-| id | sender | receiver | amount | state           | timestamp     |
-+====+========+==========+========+=================+===============+
-| 42 | 1      | 2        | 100    | `"in progress"` | 1400855185396 |
-+----+--------+----------+--------+-----------------+---------------+
++--------------------------------------------------------------------+
+| transactions                                                       |
++----+--------+-----------+--------+-----------------+---------------+
+| id | sender | recipient | amount | state           | timestamp     |
++====+========+===========+========+=================+===============+
+| 42 | 1      | 2         | 100    | `"in progress"` | 1400855185396 |
++----+--------+-----------+--------+-----------------+---------------+
 
 .. _transactions_steps_step3:
 
@@ -87,7 +87,7 @@ transferred from one user to another. Using the
 account is done by inserting a record into the ``user_transactions`` table.
 
 As a result, a record with ``amount * (-1)`` and ``amount * 1`` is added
-for the sender and receiver respectively. Both records are marked as
+for the sender and recipient respectively. Both records are marked as
 "pending".
 
 +----------------------------------------------------------------------+
@@ -118,13 +118,13 @@ for the sender and receiver respectively. Both records are marked as
 
 The transaction can now be marked as "committed".
 
-+-----------------------------------------------------------------+
-| transactions                                                    |
-+----+--------+----------+--------+---------------+---------------+
-| id | sender | receiver | amount | state         | timestamp     |
-+====+========+==========+========+===============+===============+
-| 42 | 1      | 2        | 100    | `"committed"` | 1400855185396 |
-+----+--------+----------+--------+---------------+---------------+
++------------------------------------------------------------------+
+| transactions                                                     |
++----+--------+-----------+--------+---------------+---------------+
+| id | sender | recipient | amount | state         | timestamp     |
++====+========+===========+========+===============+===============+
+| 42 | 1      | 2         | 100    | `"committed"` | 1400855185396 |
++----+--------+-----------+--------+---------------+---------------+
 
 .. note::
 
@@ -165,13 +165,13 @@ The records in ``user_transactions`` can now be marked as "finished".
 
 The final step updates the transaction once again marking it as "finished".
 
-+----------------------------------------------------------------+
-| transactions                                                   |
-+----+--------+----------+--------+--------------+---------------+
-| id | sender | receiver | amount | state        | timestamp     |
-+====+========+==========+========+==============+===============+
-| 42 | 1      | 2        | 100    | `"finished"` | 1400855185396 |
-+----+--------+----------+--------+--------------+---------------+
++-----------------------------------------------------------------+
+| transactions                                                    |
++----+--------+-----------+--------+--------------+---------------+
+| id | sender | recipient | amount | state        | timestamp     |
++====+========+===========+========+==============+===============+
+| 42 | 1      | 2         | 100    | `"finished"` | 1400855185396 |
++----+--------+-----------+--------+--------------+---------------+
 
 
 Error and edge cases

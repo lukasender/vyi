@@ -24,11 +24,11 @@ def release_the_kraken(immediate, x_transactions, max_concurrent_transactions):
         users = [user for user in r.json()['data']['users']]
 
         sender = users[0]
-        receiver = users[1]
+        recipient = users[1]
 
         transactions_queue = Queue(max_concurrent_transactions * 2)
 
-        args_transaction = (sender, receiver, immediate, transactions_queue)
+        args_transaction = (sender, recipient, immediate, transactions_queue)
         start_daemons(max_concurrent_transactions, transaction,
                       args_transaction)
         start_task_and_wait(x_transactions, transactions_queue)
@@ -52,7 +52,7 @@ def start_task_and_wait(num_tasks, task_queue):
     task_queue.join()
 
 
-def transaction(sender, receiver, immediate, queue):
+def transaction(sender, recipient, immediate, queue):
     while True:
         try:
             i = queue.get()
@@ -60,13 +60,13 @@ def transaction(sender, receiver, immediate, queue):
             cmt = "Sending {0} from {1} to {2}".format(
                 amount,
                 sender['nickname'],
-                receiver['nickname']
+                recipient['nickname']
             )
             path = 'u2u_immediate' if immediate else 'u2u'
             url = BASEURL + '/transactions/' + path
             payload = {
                 'sender': sender['id'],
-                'receiver': receiver['id'],
+                'recipient': recipient['id'],
                 'amount': amount
             }
             r = requests.post(url, data=json.dumps(payload), headers=headers)

@@ -16,7 +16,7 @@ TRANSACTIONS_SCHEMA = {
         'sender': {
             'type': 'string'
         },
-        'receiver': {
+        'recipient': {
             'type': 'string'
         },
         'amount': {
@@ -37,7 +37,7 @@ class TransactionsService(object):
     @rpcmethod_route()
     def transactions(self):
         cursor = self.cursor
-        stmt = "SELECT id, sender, receiver, amount, "\
+        stmt = "SELECT id, sender, recipient, amount, "\
                       "timestamp, type, state "\
                "FROM transactions "\
                "ORDER BY timestamp"
@@ -48,7 +48,7 @@ class TransactionsService(object):
             t = {
                 'id': transaction[0],
                 'sender': transaction[1],
-                'receiver': transaction[2],
+                'recipient': transaction[2],
                 'amount': transaction[3],
                 'timestamp': transaction[4],
                 'type': transaction[5],
@@ -65,44 +65,44 @@ class TransactionsService(object):
 
     @rpcmethod_route(route_suffix="/u2u", request_method="POST")
     @validate(TRANSACTIONS_SCHEMA)
-    def transaction_user_to_user(self, sender, receiver, amount):
+    def transaction_user_to_user(self, sender, recipient, amount):
         try:
-            self._transaction_user_to_user(sender, receiver, amount)
+            self._transaction_user_to_user(sender, recipient, amount)
             return {"status": "success"}
         except Error, e:
             return bad_request(e.msg)
 
     @rpcmethod_route(route_suffix="/u2u_immediate", request_method="POST")
     @validate(TRANSACTIONS_SCHEMA)
-    def transaction_user_to_user_immediate(self, sender, receiver, amount):
+    def transaction_user_to_user_immediate(self, sender, recipient, amount):
         try:
-            transaction = self._transaction_user_to_user(sender, receiver,
+            transaction = self._transaction_user_to_user(sender, recipient,
                                                          amount)
             if self._process_transactions([transaction]):
                 return {"status": "success"}
         except Error, e:
             return bad_request(e.msg)
 
-    def _transaction_user_to_user(self, sender, receiver, amount):
+    def _transaction_user_to_user(self, sender, recipient, amount):
         if amount <= 0:
             raise Error("'amount' must be a number > 0.")
         self.util.refresh("users")
         if not self.util.user_exists(sender):
             raise Error("unknown 'sender'")
-        if not self.util.user_exists(receiver):
-            raise Error("unknown 'receiver'")
+        if not self.util.user_exists(recipient):
+            raise Error("unknown 'recipient'")
         cursor = self.cursor
         if not self.util.user_balance_sufficient(sender, amount):
             raise Error("sender balance is insufficient")
         stmt = "INSERT INTO transactions "\
-               "(id,\"timestamp\",sender,receiver,amount,type,state) "\
+               "(id,\"timestamp\",sender,recipient,amount,type,state) "\
                "VALUES (?, ?, ?, ? ,?, ?, ?)"
         transaction_id = genuuid()
         args = (
             transaction_id,
             time.time(),
             sender,
-            receiver,
+            recipient,
             amount,
             'u2u',
             'initial',
@@ -114,7 +114,7 @@ class TransactionsService(object):
             transaction = [
                 transaction_id,
                 sender,
-                receiver,
+                recipient,
                 amount,
                 'u2u',
                 'initial'
@@ -127,7 +127,7 @@ class TransactionsService(object):
     def process(self):
         cursor = self.cursor
         self.util.refresh("transactions")
-        stmt = "SELECT id, sender, receiver, amount, type, state "\
+        stmt = "SELECT id, sender, recipient, amount, type, state "\
                "FROM transactions WHERE state != ?"
         cursor.execute(stmt, ("finished",))
         transactions = cursor.fetchall()
@@ -139,7 +139,7 @@ class TransactionsService(object):
             transaction = {
                 'id': t[0],
                 'sender': t[1],
-                'receiver': t[2],
+                'recipient': t[2],
                 'amount': t[3],
                 'type': t[4],
                 'state': t[5]
@@ -179,9 +179,9 @@ class TransactionsService(object):
         if not ok:
             print "tried to _update_balance_sender, but failed"
             return False
-        ok = self._update_balance_receiver(transaction, 'pending')
+        ok = self._update_balance_recipient(transaction, 'pending')
         if not ok:
-            print "tried to _update_balance_receiver, but failed"
+            print "tried to _update_balance_recipient, but failed"
             return False
         ok = self.util.set_transaction_state(transaction, 'committed')
         if not ok:
@@ -191,9 +191,9 @@ class TransactionsService(object):
         if not ok:
             print "tried to _update_pending_user_transaction_sender, but failed"
             return False
-        ok = self._update_pending_user_transaction_receiver(transaction)
+        ok = self._update_pending_user_transaction_recipient(transaction)
         if not ok:
-            print "tried to _update_pending_user_transaction_receiver, but "\
+            print "tried to _update_pending_user_transaction_recipient, but "\
                   "failed"
             return False
         return self.util.set_transaction_state(transaction, 'finished',
@@ -210,13 +210,13 @@ class TransactionsService(object):
         """
         user_transactions = self.util.get_user_transactions(transaction)
         u_ta_sender = user_transactions.get('sender', None)
-        u_ta_receiver = user_transactions.get('receiver', None)
+        u_ta_recipient = user_transactions.get('recipient', None)
         if u_ta_sender is None:
             ok = self._update_balance_sender(transaction, 'pending')
             if not ok:
                 return False
-        if u_ta_receiver is None:
-            ok = self._update_balance_receiver(transaction, 'pending')
+        if u_ta_recipient is None:
+            ok = self._update_balance_recipient(transaction, 'pending')
             if not ok:
                 return False
         ok = self.util.set_transaction_state(transaction, 'committed')
@@ -225,7 +225,7 @@ class TransactionsService(object):
         ok = self._update_pending_user_transaction_sender(transaction)
         if not ok:
             return False
-        ok = self._update_pending_user_transaction_receiver(transaction)
+        ok = self._update_pending_user_transaction_recipient(transaction)
         if not ok:
             return False
         return self.util.set_transaction_state(transaction, 'finished',
@@ -242,13 +242,13 @@ class TransactionsService(object):
         """
         user_transactions = self.util.get_user_transactions(transaction)
         u_ta_sender = user_transactions['sender']
-        u_ta_receiver = user_transactions['receiver']
+        u_ta_recipient = user_transactions['recipient']
         if u_ta_sender['state'] == 'pending':
             ok = self._update_pending_user_transaction_sender(transaction)
             if not ok:
                 return False
-        if u_ta_receiver['state'] == 'pending':
-            ok = self._update_pending_user_transaction_receiver(transaction)
+        if u_ta_recipient['state'] == 'pending':
+            ok = self._update_pending_user_transaction_recipient(transaction)
             if not ok:
                 return False
         return self.util.set_transaction_state(transaction, 'finished',
@@ -273,12 +273,12 @@ class TransactionsService(object):
             state=state
         )
 
-    def _update_balance_receiver(self, transaction, state):
+    def _update_balance_recipient(self, transaction, state):
         ta_id = transaction['id']
-        receiver = transaction['receiver']
+        recipient = transaction['recipient']
         amount = transaction['amount']
         return self.util.insert_user_balance(
-            user_id=receiver,
+            user_id=recipient,
             transaction_id=ta_id,
             amount=amount,
             state=state
@@ -290,9 +290,9 @@ class TransactionsService(object):
         return self.util.update_pending_user_transaction(transaction_id,
                                                          user_id)
 
-    def _update_pending_user_transaction_receiver(self, transaction):
+    def _update_pending_user_transaction_recipient(self, transaction):
         transaction_id = transaction['id']
-        user_id = transaction['receiver']
+        user_id = transaction['recipient']
         return self.util.update_pending_user_transaction(transaction_id,
                                                          user_id)
 

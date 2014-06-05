@@ -13,7 +13,7 @@ A user can transfer balance from his account to another users' account.
 The transaction process is performed via a 2 phase-commit.
 
 The first phase accepts a new transaction from a user.
-The second phase transfers the amount from the sender to the receiver and takes
+The second phase transfers the amount from the sender to the recipient and takes
 care of data consistency.
 
 Setup of the suite
@@ -100,7 +100,7 @@ of a ``transaction`` or ``user_transaction``::
     ...     cursor.execute(stmt, (transaction_id,))
     ...     return cursor.fetchone()[0] == state
 
-    >>> def check_user_transactions(transaction_id, sender, receiver, amount, state):
+    >>> def check_user_transactions(transaction_id, sender, recipient, amount, state):
     ...     """ A helper function which fetches the user_transactions with
     ...         given transaction_id and compares its properties with given
     ...         parameters.
@@ -118,7 +118,7 @@ of a ``transaction`` or ``user_transaction``::
     ...     # dimension is sorted accordingly as described in the SQL projection.
     ...     if not user_transactions[0][0] == sender:
     ...         return False
-    ...     if not user_transactions[1][0] == receiver:
+    ...     if not user_transactions[1][0] == recipient:
     ...         return False
     ...     if not user_transactions[0][1] == -amount:
     ...         return False
@@ -138,7 +138,7 @@ of 9900 for Nikola and 10100 for Elon Musk::
 
     >>> transaction = {
     ...     'sender': nikola_tesla['id'],
-    ...     'receiver': elon_musk['id'],
+    ...     'recipient': elon_musk['id'],
     ...     'amount': 100
     ... }
     >>> r = app.post_json('/transactions/u2u', transaction)
@@ -150,7 +150,7 @@ resulting in new balances of 9600 for Elon and 10500 for Jacque::
 
     >>> transaction = {
     ...     'sender': elon_musk['id'],
-    ...     'receiver': jacque_fresco['id'],
+    ...     'recipient': jacque_fresco['id'],
     ...     'amount': 500
     ... }
     >>> r = app.post_json('/transactions/u2u', transaction)
@@ -160,7 +160,7 @@ resulting in new balances of 9600 for Elon and 10500 for Jacque::
 Let's inspect the 'transactions' table. ::
 
     >>> refresh('transactions')
-    >>> stmt = "SELECT id, sender, receiver, amount, type, state "\
+    >>> stmt = "SELECT id, sender, recipient, amount, type, state "\
     ...        "FROM transactions ORDER BY timestamp"
     >>> cursor.execute(stmt)
     >>> transactions = cursor.fetchall()
@@ -205,7 +205,7 @@ Process all pending transactions::
 Let's inspect the 'transactions' table again. ::
 
     >>> refresh('transactions')
-    >>> stmt = "SELECT id, sender, receiver, state "\
+    >>> stmt = "SELECT id, sender, recipient, state "\
     ...        "FROM transactions ORDER BY timestamp"
     >>> cursor.execute(stmt)
     >>> transactions = cursor.fetchall()
@@ -269,16 +269,16 @@ Set up the transaction::
 
     >>> transaction_id = genuuid()
     >>> sender = elon_musk['id']
-    >>> receiver = nikola_tesla['id']
+    >>> recipient = nikola_tesla['id']
     >>> amount = 400
     >>> stmt = "INSERT INTO transactions "\
-    ...        "(id, \"timestamp\", sender, receiver, amount, type, state) "\
+    ...        "(id, \"timestamp\", sender, recipient, amount, type, state) "\
     ...        "VALUES (?, ?, ?, ? ,?, ?, ?)"
     >>> args = (
     ...     transaction_id,
     ...     time.time(),
     ...     sender,
-    ...     receiver,
+    ...     recipient,
     ...     amount,
     ...     "u2u",
     ...     "in progress",
@@ -297,7 +297,7 @@ Check the state of the transaction and the user transactions::
 
     >>> check_transaction_state(transaction_id, u'finished')
     True
-    >>> check_user_transactions(transaction_id, sender, receiver,
+    >>> check_user_transactions(transaction_id, sender, recipient,
     ...                        amount, u'finished')
     True
 
@@ -314,16 +314,16 @@ Set up the transaction::
 
     >>> transaction_id = genuuid()
     >>> sender = elon_musk['id']
-    >>> receiver = nikola_tesla['id']
+    >>> recipient = nikola_tesla['id']
     >>> amount = 50
     >>> stmt = "INSERT INTO transactions "\
-    ...        "(id, \"timestamp\", sender, receiver, amount, type, state) "\
+    ...        "(id, \"timestamp\", sender, recipient, amount, type, state) "\
     ...        "VALUES (?, ?, ?, ? ,?, ?, ?)"
     >>> args = (
     ...     transaction_id,
     ...     time.time(),
     ...     sender,
-    ...     receiver,
+    ...     recipient,
     ...     amount,
     ...     "u2u",
     ...     "in progress",
@@ -361,7 +361,7 @@ Check the state of the transaction and the user transactions::
 
     >>> check_transaction_state(transaction_id, u'finished')
     True
-    >>> check_user_transactions(transaction_id, sender, receiver,
+    >>> check_user_transactions(transaction_id, sender, recipient,
     ...                        amount, u'finished')
     True
 
@@ -377,16 +377,16 @@ Set up the transaction::
 
     >>> transaction_id = genuuid()
     >>> sender = elon_musk['id']
-    >>> receiver = nikola_tesla['id']
+    >>> recipient = nikola_tesla['id']
     >>> amount = 150
     >>> stmt = "INSERT INTO transactions "\
-    ...        "(id, \"timestamp\", sender, receiver, amount, type, state) "\
+    ...        "(id, \"timestamp\", sender, recipient, amount, type, state) "\
     ...        "VALUES (?, ?, ?, ? ,?, ?, ?)"
     >>> args = (
     ...     transaction_id,
     ...     time.time(),
     ...     sender,
-    ...     receiver,
+    ...     recipient,
     ...     amount,
     ...     "u2u",
     ...     "in progress",
@@ -441,7 +441,7 @@ Check the state of the transaction and the user transactions::
 
     >>> check_transaction_state(transaction_id, u'finished')
     True
-    >>> check_user_transactions(transaction_id, sender, receiver,
+    >>> check_user_transactions(transaction_id, sender, recipient,
     ...                        amount, u'finished')
     True
 
@@ -460,16 +460,16 @@ Set up the transaction::
 
     >>> transaction_id = genuuid()
     >>> sender = elon_musk['id']
-    >>> receiver = nikola_tesla['id']
+    >>> recipient = nikola_tesla['id']
     >>> amount = 200
     >>> stmt = "INSERT INTO transactions "\
-    ...        "(id, \"timestamp\", sender, receiver, amount, type, state) "\
+    ...        "(id, \"timestamp\", sender, recipient, amount, type, state) "\
     ...        "VALUES (?, ?, ?, ? ,?, ?, ?)"
     >>> args = (
     ...     transaction_id,
     ...     time.time(),
     ...     sender,
-    ...     receiver,
+    ...     recipient,
     ...     amount,
     ...     "u2u",
     ...     "committed",                        # mark as committed
@@ -524,7 +524,7 @@ Check the state of the transaction and the user transactions::
 
     >>> check_transaction_state(transaction_id, u'finished')
     True
-    >>> check_user_transactions(transaction_id, sender, receiver,
+    >>> check_user_transactions(transaction_id, sender, recipient,
     ...                        amount, u'finished')
     True
 
@@ -541,16 +541,16 @@ Set up the transaction::
 
     >>> transaction_id = genuuid()
     >>> sender = elon_musk['id']
-    >>> receiver = nikola_tesla['id']
+    >>> recipient = nikola_tesla['id']
     >>> amount = 200
     >>> stmt = "INSERT INTO transactions "\
-    ...        "(id, \"timestamp\", sender, receiver, amount, type, state) "\
+    ...        "(id, \"timestamp\", sender, recipient, amount, type, state) "\
     ...        "VALUES (?, ?, ?, ? ,?, ?, ?)"
     >>> args = (
     ...     transaction_id,
     ...     time.time(),
     ...     sender,
-    ...     receiver,
+    ...     recipient,
     ...     amount,
     ...     "u2u",
     ...     "committed",
@@ -605,7 +605,7 @@ Check the state of the transaction and the user transactions::
 
     >>> check_transaction_state(transaction_id, u'finished')
     True
-    >>> check_user_transactions(transaction_id, sender, receiver,
+    >>> check_user_transactions(transaction_id, sender, recipient,
     ...                        amount, u'finished')
     True
 
@@ -621,16 +621,16 @@ Set up the transaction::
 
     >>> transaction_id = genuuid()
     >>> sender = elon_musk['id']
-    >>> receiver = nikola_tesla['id']
+    >>> recipient = nikola_tesla['id']
     >>> amount = 200
     >>> stmt = "INSERT INTO transactions "\
-    ...        "(id, \"timestamp\", sender, receiver, amount, type, state) "\
+    ...        "(id, \"timestamp\", sender, recipient, amount, type, state) "\
     ...        "VALUES (?, ?, ?, ? ,?, ?, ?)"
     >>> args = (
     ...     transaction_id,
     ...     time.time(),
     ...     sender,
-    ...     receiver,
+    ...     recipient,
     ...     amount,
     ...     "u2u",
     ...     "committed",
@@ -685,7 +685,7 @@ Check the state of the transaction and the user transactions::
 
     >>> check_transaction_state(transaction_id, u'finished')
     True
-    >>> check_user_transactions(transaction_id, sender, receiver,
+    >>> check_user_transactions(transaction_id, sender, recipient,
     ...                        amount, u'finished')
     True
 
