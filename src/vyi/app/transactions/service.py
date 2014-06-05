@@ -6,6 +6,7 @@ from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 from ..model import genuuid, CRATE_CONNECTION
 
 from .service_util import TransactionUtil
+from .exceptions import Error, ProcessError
 
 import time
 
@@ -69,7 +70,7 @@ class TransactionsService(object):
         try:
             self._transaction_user_to_user(sender, recipient, amount)
             return {"status": "success"}
-        except Error, e:
+        except ProcessError, e:
             return bad_request(e.msg)
 
     @rpcmethod_route(route_suffix="/u2u_immediate", request_method="POST")
@@ -78,9 +79,11 @@ class TransactionsService(object):
         try:
             transaction = self._transaction_user_to_user(sender, recipient,
                                                          amount)
-            if self._process_transactions([transaction]):
+            result = self._process_transactions([transaction])
+            if result['status'] == 'success':
                 return {"status": "success"}
-        except Error, e:
+            return result
+        except ProcessError, e:
             return bad_request(e.msg)
 
     def _transaction_user_to_user(self, sender, recipient, amount):
@@ -88,12 +91,12 @@ class TransactionsService(object):
             raise Error("'amount' must be a number > 0.")
         self.util.refresh("users")
         if not self.util.user_exists(sender):
-            raise Error("unknown 'sender'")
+            raise ProcessError("unknown 'sender'")
         if not self.util.user_exists(recipient):
-            raise Error("unknown 'recipient'")
+            raise ProcessError("unknown 'recipient'")
         cursor = self.cursor
         if not self.util.user_balance_sufficient(sender, amount):
-            raise Error("sender balance is insufficient")
+            raise ProcessError("sender balance is insufficient")
         stmt = "INSERT INTO transactions "\
                "(id,\"timestamp\",sender,recipient,amount,type,state) "\
                "VALUES (?, ?, ?, ? ,?, ?, ?)"
@@ -110,7 +113,7 @@ class TransactionsService(object):
         try:
             cursor.execute(stmt, args)
             if cursor.rowcount != 1:
-                raise Error("could not add the new transaction.")
+                raise ProcessError("could not add the new transaction.")
             transaction = [
                 transaction_id,
                 sender,
@@ -121,7 +124,7 @@ class TransactionsService(object):
             ]
             return transaction
         except (NoResultFound, MultipleResultsFound):
-            raise Error("user balance insufficient.")
+            raise ProcessError("user balance insufficient.")
 
     @rpcmethod_route(route_suffix="/process", request_method="POST")
     def process(self):
@@ -144,11 +147,17 @@ class TransactionsService(object):
                 'type': t[4],
                 'state': t[5]
             }
-            successful = self.__process_transactions(transaction)
-            if not successful:
-                failed_transactions.append(transaction)
+            try:
+                self.__process_transactions(transaction)
+            except ProcessError, e:
+                print e.msg
+                failed_transactions.append({
+                    "transaction":transaction,
+                    "reason":e.msg
+                })
+        status = "success" if len(failed_transactions) == 0 else "failed"
         return {
-            "status":"success",
+            "status":status,
             "msg":"processed all transactions",
             "failed_transactions": failed_transactions
         }
@@ -171,31 +180,12 @@ class TransactionsService(object):
         """
         Processes a transaction with the state 'initial'.
         """
-        ok = self.util.set_transaction_state(transaction, 'in progress')
-        if not ok:
-            print "tried to set_transaction_state to 'in progress', but failed"
-            return False
-        ok = self._update_balance_sender(transaction, 'pending')
-        if not ok:
-            print "tried to _update_balance_sender, but failed"
-            return False
-        ok = self._update_balance_recipient(transaction, 'pending')
-        if not ok:
-            print "tried to _update_balance_recipient, but failed"
-            return False
-        ok = self.util.set_transaction_state(transaction, 'committed')
-        if not ok:
-            print "tried to set_transaction_state to 'committed', but failed"
-            return False
-        ok = self._update_pending_user_transaction_sender(transaction)
-        if not ok:
-            print "tried to _update_pending_user_transaction_sender, but failed"
-            return False
-        ok = self._update_pending_user_transaction_recipient(transaction)
-        if not ok:
-            print "tried to _update_pending_user_transaction_recipient, but "\
-                  "failed"
-            return False
+        self.util.set_transaction_state(transaction, 'in progress')
+        self._update_balance_sender(transaction, 'pending')
+        self._update_balance_recipient(transaction, 'pending')
+        self.util.set_transaction_state(transaction, 'committed')
+        self._update_pending_user_transaction_sender(transaction)
+        self._update_pending_user_transaction_recipient(transaction)
         return self.util.set_transaction_state(transaction, 'finished',
                                                occ_safe=True)
 
@@ -212,22 +202,12 @@ class TransactionsService(object):
         u_ta_sender = user_transactions.get('sender', None)
         u_ta_recipient = user_transactions.get('recipient', None)
         if u_ta_sender is None:
-            ok = self._update_balance_sender(transaction, 'pending')
-            if not ok:
-                return False
+            self._update_balance_sender(transaction, 'pending')
         if u_ta_recipient is None:
-            ok = self._update_balance_recipient(transaction, 'pending')
-            if not ok:
-                return False
-        ok = self.util.set_transaction_state(transaction, 'committed')
-        if not ok:
-            return False
-        ok = self._update_pending_user_transaction_sender(transaction)
-        if not ok:
-            return False
-        ok = self._update_pending_user_transaction_recipient(transaction)
-        if not ok:
-            return False
+            self._update_balance_recipient(transaction, 'pending')
+        self.util.set_transaction_state(transaction, 'committed')
+        self._update_pending_user_transaction_sender(transaction)
+        self._update_pending_user_transaction_recipient(transaction)
         return self.util.set_transaction_state(transaction, 'finished',
                                                occ_safe=True)
 
@@ -244,13 +224,9 @@ class TransactionsService(object):
         u_ta_sender = user_transactions['sender']
         u_ta_recipient = user_transactions['recipient']
         if u_ta_sender['state'] == 'pending':
-            ok = self._update_pending_user_transaction_sender(transaction)
-            if not ok:
-                return False
+            self._update_pending_user_transaction_sender(transaction)
         if u_ta_recipient['state'] == 'pending':
-            ok = self._update_pending_user_transaction_recipient(transaction)
-            if not ok:
-                return False
+            self._update_pending_user_transaction_recipient(transaction)
         return self.util.set_transaction_state(transaction, 'finished',
                                                occ_safe=True)
 
@@ -259,14 +235,14 @@ class TransactionsService(object):
         Mother of god! A critical error occurred. Only a human can help now...
         """
         # notify a human
-        raise Error("Mother of god! A critical error occurred. "\
-                        "Only a human can help now...", transaction)
+        raise ProcessError("Mother of god! A critical error occurred. "\
+                           "Only a human can help now...", transaction)
 
     def _update_balance_sender(self, transaction, state):
         ta_id = transaction['id']
         sender = transaction['sender']
         amount = -transaction['amount']
-        return self.util.insert_user_balance(
+        self.util.insert_user_balance(
             user_id=sender,
             transaction_id=ta_id,
             amount=amount,
@@ -277,7 +253,7 @@ class TransactionsService(object):
         ta_id = transaction['id']
         recipient = transaction['recipient']
         amount = transaction['amount']
-        return self.util.insert_user_balance(
+        self.util.insert_user_balance(
             user_id=recipient,
             transaction_id=ta_id,
             amount=amount,
@@ -287,14 +263,14 @@ class TransactionsService(object):
     def _update_pending_user_transaction_sender(self, transaction):
         transaction_id = transaction['id']
         user_id = transaction['sender']
-        return self.util.update_pending_user_transaction(transaction_id,
-                                                         user_id)
+        self.util.update_pending_user_transaction(transaction_id,
+                                                  user_id)
 
     def _update_pending_user_transaction_recipient(self, transaction):
         transaction_id = transaction['id']
         user_id = transaction['recipient']
-        return self.util.update_pending_user_transaction(transaction_id,
-                                                         user_id)
+        self.util.update_pending_user_transaction(transaction_id,
+                                                  user_id)
 
 def bad_request(msg=None):
     # TODO: 403
@@ -302,13 +278,6 @@ def bad_request(msg=None):
     if msg:
         br['msg'] = msg
     return br
-
-
-class Error(Exception):
-
-    def __init__(self, msg=None):
-        super(Error, self).__init__()
-        self.msg = msg
 
 
 def includeme(config):

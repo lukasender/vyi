@@ -2,6 +2,7 @@ import time
 
 from vyi.app.model import genuuid
 from crate.client.exceptions import ProgrammingError
+from .exceptions import ProcessError
 
 MAX_RETRIES = 10
 
@@ -16,9 +17,8 @@ class TransactionUtil(object):
         Update the state of a given transaction.
         """
         tries = 1 if not occ_safe else MAX_RETRIES
-        successful = False
         cursor = self.cursor
-        while not successful and tries > 0:
+        while tries > 0:
             tries -= 1
             # refresh and get the actual value
             self.refresh("transactions")
@@ -32,8 +32,10 @@ class TransactionUtil(object):
                    "SET state = ? WHERE id = ? AND _version = ?"
             cursor.execute(stmt, (state, transaction['id'], _version,))
             if cursor.rowcount == 1:
-                successful = True
-        return successful
+                return True
+        raise ProcessError("could not update transaction state to '{0}' "\
+                           "for transaction '{1}'".format(state,
+                                                          transaction['id']))
 
     def get_balance_for(self, user_id):
         cursor = self.cursor
@@ -52,12 +54,10 @@ class TransactionUtil(object):
             args = (genuuid(), user_id, time.time(), amount,
                     transaction_id, state,)
             cursor.execute(stmt, args)
-            return True
         except ProgrammingError, e:
             assert e.message.endswith('exists already]')
             # Reduce concurrency effects. It is safe to assume that the
             # user_transaction is updated already.
-            return True
 
     def update_pending_user_transaction(self, transaction_id, user_id):
         cursor = self.cursor
@@ -67,7 +67,11 @@ class TransactionUtil(object):
                "WHERE transaction_id = ? AND user_id = ?"
         args = ("finished", transaction_id, user_id,)
         cursor.execute(stmt, args)
-        return cursor.rowcount == 1
+        if cursor.rowcount != 1:
+            msg = "could not update pending user_transactions "\
+                  "for transaction '{0}', user_id '{1}'".format(transaction_id,
+                                                                user_id)
+            raise ProcessError(msg)
 
     def user_balance_sufficient(self, sender, amount):
         return self.get_balance_for(sender) >= amount
