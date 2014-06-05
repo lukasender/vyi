@@ -60,6 +60,11 @@ REQUIRES = [
 ]
 
 TEST_REQUIRES = REQUIRES + [
+    'lovely.testlayers',
+    'mock>=1.0.1',
+    'zope.testing',
+    'webtest',
+    'zc.customdoctests>=1.0.1'
 ]
 
 setup(name='vyi',
