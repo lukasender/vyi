@@ -192,11 +192,6 @@ class TransactionsService(object):
     def _process_transaction_inprogress(self, transaction):
         """
         A transaction was found with state 'in progress'.
-        This process needs to check if any other process is processing the
-        given transaction.
-        If another process is processing the transaction, this process will do
-        nothing.
-        If not, this process continues accordingly.
         """
         user_transactions = self.util.get_user_transactions(transaction)
         u_ta_sender = user_transactions.get('sender', None)
@@ -214,11 +209,6 @@ class TransactionsService(object):
     def _process_transaction_committed(self, transaction):
         """
         A transaction was found with the state 'committed'.
-        This process needs to check if any other process is processing the
-        given transaction.
-        If another process is processing the transaction, this process will do
-        nothing.
-        If not, this process continues accordingly.
         """
         user_transactions = self.util.get_user_transactions(transaction)
         u_ta_sender = user_transactions['sender']
